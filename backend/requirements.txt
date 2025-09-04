@@ -1,0 +1,8 @@
+Flask>=3.0
+pyswisseph>=2.10.3
+pydantic>=2.7
+flask-cors>=4.0.0
+gunicorn>=21.2
+pytest>=7.0
+ruff>=0.1.0
+black>=23.0
