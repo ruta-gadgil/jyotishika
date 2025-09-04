@@ -6,3 +6,4 @@ gunicorn>=21.2
 pytest>=7.0
 ruff>=0.1.0
 black>=23.0
+requests>=2.31.0
