@@ -256,3 +256,10 @@ node_modules/
 # Temporary files
 tmp/
 temp/
+
+# Ephemeris data files
+*.se1
+*.se2
+*.se3
+ephe/
+backend/ephe/
