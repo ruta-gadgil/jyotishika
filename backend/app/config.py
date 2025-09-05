@@ -7,6 +7,9 @@ class Config:
     FLASK_ENV = os.environ.get("FLASK_ENV", "development")
     PORT = int(os.environ.get("PORT", 8080))
     ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+    DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+    TESTING = os.environ.get("TESTING", "False").lower() == "true"
+    LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
     
     @classmethod
     def validate(cls):
