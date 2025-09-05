@@ -2,14 +2,30 @@ from flask import Blueprint, request, jsonify, current_app
 from .schemas import ChartRequest
 from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps
 from .astro.utils import to_utc, sign_index, house_from_sign, norm360, format_utc_offset
+import logging
 
 bp = Blueprint("api", __name__)
 
 @bp.route("/chart", methods=["POST"])
 def chart():
+    # Log and print request information
+    print(f"\n🔵 API Request received - Method: {request.method}, URL: {request.url}")
+    # print(f"📋 Request Headers: {dict(request.headers)}")
+    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    
+    current_app.logger.info(f"API Request received - Method: {request.method}, URL: {request.url}")
+    current_app.logger.info(f"Request Headers: {dict(request.headers)}")
+    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    
     try:
         payload = ChartRequest.model_validate_json(request.data)
+        # Log and print validated payload
+        print(f"✅ Validated Payload: {payload.model_dump()}")
+        current_app.logger.info(f"Validated Payload: {payload.model_dump()}")
     except Exception as e:
+        # Log and print validation error
+        print(f"❌ Request validation error: {str(e)}")
+        current_app.logger.error(f"Request validation error: {str(e)}")
         return jsonify({
             "error": {
                 "code": "VALIDATION_ERROR",
@@ -76,10 +92,14 @@ def chart():
             else:
                 out["houseCusps"] = cusps
 
+        # Log and print successful response
+        print(f"🎉 Chart calculation successful - Response status: 200")
+        current_app.logger.info(f"Chart calculation successful - Response status: 200")
         return jsonify(out), 200
 
     except Exception as e:
-        # Log the full error for debugging
+        # Log and print the full error for debugging
+        print(f"💥 Chart calculation error: {str(e)}")
         current_app.logger.error(f"Chart calculation error: {str(e)}")
         return jsonify({
             "error": {
