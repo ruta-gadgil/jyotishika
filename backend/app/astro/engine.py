@@ -54,12 +54,13 @@ def compute_planets(jd_ut: float, nodeType: str):
     # Precompute node
     result = swe.calc_ut(jd_ut, node_body, SEFLAGS)
     
-    # Extract values safely
-    if isinstance(result, tuple) and len(result) >= 2:
-        rahu_long = safe_extract_float(result[0])
-        rahu_speed = safe_extract_float(result[3]) if len(result) >= 4 else 0.0
+    # Extract values safely - with FLG_SPEED, result[0] is tuple of 6 values:
+    # (longitude, latitude, distance, speed_longitude, speed_latitude, speed_distance)
+    if isinstance(result, tuple) and len(result) >= 2 and isinstance(result[0], tuple) and len(result[0]) >= 4:
+        rahu_long = safe_extract_float(result[0][0])  # longitude
+        rahu_speed = safe_extract_float(result[0][3])  # speed in longitude
     else:
-        rahu_long = safe_extract_float(result)
+        rahu_long = safe_extract_float(result[0]) if isinstance(result, tuple) else safe_extract_float(result)
         rahu_speed = 0.0
     
     rahu_long = norm360(rahu_long)
@@ -69,23 +70,27 @@ def compute_planets(jd_ut: float, nodeType: str):
             lng, spd = rahu_long, rahu_speed
         elif name == "Ketu":
             lng = norm360(rahu_long + 180.0)
-            spd = -rahu_speed
+            spd = rahu_speed  # Ketu has same speed as Rahu
         else:
             result = swe.calc_ut(jd_ut, body, SEFLAGS)
-            if isinstance(result, tuple) and len(result) >= 2:
-                lng = safe_extract_float(result[0])
-                spd = safe_extract_float(result[3]) if len(result) >= 4 else 0.0
+            # With FLG_SPEED flag: result[0] is tuple of 6 values
+            if isinstance(result, tuple) and len(result) >= 2 and isinstance(result[0], tuple) and len(result[0]) >= 4:
+                lng = safe_extract_float(result[0][0])  # longitude
+                spd = safe_extract_float(result[0][3])  # speed in longitude
             else:
-                lng = safe_extract_float(result)
+                lng = safe_extract_float(result[0]) if isinstance(result, tuple) else safe_extract_float(result)
                 spd = 0.0
             
             lng = norm360(lng)
             
+        # Both Rahu and Ketu are always retrograde in Vedic astrology
+        is_retrograde = spd < 0 if name not in ["Rahu", "Ketu"] else True
+        
         out.append({
             "planet": name,
             "longitude": lng,
             "speed": spd,
-            "retrograde": spd < 0
+            "retrograde": is_retrograde
         })
     return out
 

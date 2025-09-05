@@ -45,11 +45,16 @@ def chart():
         asc_sign = sign_index(asc_long)
 
         planets = compute_planets(jd_ut, payload.nodeType)
+        print(asc_sign, planets)
 
-        # decorate with sign/house if requested
+        # decorate with sign/house if requested and round for frontend
         result_planets = []
         for p in planets:
             rec = dict(p)
+            # Round values for frontend display
+            rec["longitude"] = round(p["longitude"], 2)  # 2 decimal places for longitude
+            rec["speed"] = round(p["speed"], 4)          # 4 decimal places for speed
+            
             if payload.include.signsForEachPlanet:
                 rec["signIndex"] = sign_index(p["longitude"])
             if payload.houseSystem == "WHOLE_SIGN" and payload.include.housesForEachPlanet:
@@ -57,11 +62,16 @@ def chart():
             elif payload.include.housesForEachPlanet and cusps:
                 # For Placidus/Equal, we could call swe.house_pos for accuracy
                 # For now, we'll use a simple angular separation approach
-                planet_long = p["longitude"]
+                planet_long = p["longitude"]  # Use original precision for calculations
                 house_num = 1
                 for i, cusp in enumerate(cusps):
-                    next_cusp = cusps[(i + 1) % 12] if i < 11 else cusps[0] + 360
-                    if cusp <= planet_long < next_cusp or (i == 11 and planet_long >= cusp):
+                    if i < len(cusps) - 1:
+                        next_cusp = cusps[i + 1]
+                    else:
+                        # Last house (12th house) - wrap around to first cusp + 360
+                        next_cusp = cusps[0] + 360
+                    
+                    if cusp <= planet_long < next_cusp or (i == len(cusps) - 1 and planet_long >= cusp):
                         house_num = i + 1
                         break
                 rec["house"] = house_num
@@ -78,7 +88,7 @@ def chart():
                 "datetimeUTC": dt_utc.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
             },
             "ascendant": {
-                "longitude": asc_long,
+                "longitude": round(asc_long, 2),  # Round ascendant longitude for frontend
                 "signIndex": asc_sign,
                 "house": 1
             },
@@ -87,10 +97,11 @@ def chart():
 
         if payload.include.houseCusps:
             if payload.houseSystem == "WHOLE_SIGN":
-                # Build whole-sign cusps from asc_sign
-                out["houseCusps"] = compute_whole_sign_cusps(asc_sign)
+                # Build whole-sign cusps from asc_sign and round for frontend
+                out["houseCusps"] = [round(c, 2) for c in compute_whole_sign_cusps(asc_sign)]
             else:
-                out["houseCusps"] = cusps
+                # Round house cusps for frontend
+                out["houseCusps"] = [round(c, 2) for c in cusps] if cusps else None
 
         # Log and print successful response
         print(f"🎉 Chart calculation successful - Response status: 200")
