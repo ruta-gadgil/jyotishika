@@ -26,25 +26,61 @@ def safe_extract_float(value):
             return 0.0
 
 def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str):
-    """Calculate ascendant and house cusps"""
-    hcode = HOUSE_CODES[houseSystem]
-    if hcode == "W":
-        # Use Placidus internally just to get ASC, then replace cusps with whole sign bins.
-        result = swe.houses_ex(jd_ut, lat, lon, b'P', SEFLAGS)
-        if len(result) == 3:
-            _, ascmc, _ = result
+    """Calculate ascendant and house cusps for Vedic astrology using sidereal conversion"""
+    try:
+        # Calculate houses using Swiss Ephemeris
+        # swe.houses() returns (cusps, ascmc) where:
+        # cusps[1-12] are the house cusps (cusps[0] is unused)
+        # ascmc[0] = Ascendant, ascmc[1] = MC, ascmc[2] = ARMC, ascmc[3] = Vertex
+        cusps, ascmc = swe.houses(jd_ut, lat, lon, b'P')
+        
+        # Extract the ascendant (in tropical longitude)
+        ascendant_tropical = ascmc[0]
+        
+        # Convert to sidereal (Vedic) using Lahiri Ayanamsa
+        # Set ayanamsa to Lahiri (most commonly used in Vedic astrology)
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+        ayanamsa = swe.get_ayanamsa(jd_ut)
+        
+        # Convert ascendant to sidereal
+        ascendant_sidereal = (ascendant_tropical - ayanamsa) % 360
+        
+        # Handle different house systems
+        hcode = HOUSE_CODES[houseSystem]
+        if hcode == "W":
+            # For whole sign houses, return ascendant and None for cusps
+            return ascendant_sidereal, None
         else:
-            ascmc = result[1]  # Handle case where only 2 values returned
-        asc = norm360(safe_extract_float(ascmc[0]))  # Ascendant is at index 0
-        return asc, None  # cusps computed later if asked
-    else:
-        result = swe.houses_ex(jd_ut, lat, lon, hcode.encode(), SEFLAGS)
-        if len(result) == 3:
-            cusps, ascmc, _ = result
+            # Convert house cusps to sidereal
+            houses_sidereal = []
+            for i in range(1, 13):  # Houses 1-12
+                cusp_sidereal = (cusps[i] - ayanamsa) % 360
+                houses_sidereal.append(cusp_sidereal)
+            
+            return ascendant_sidereal, houses_sidereal
+            
+    except Exception as e:
+        print(f"Error calculating houses: {e}")
+        # Fallback to original logic if sidereal conversion fails
+        hcode = HOUSE_CODES[houseSystem]
+        
+        if hcode == "W":
+            # Use Placidus internally just to get ASC, then replace cusps with whole sign bins.
+            result = swe.houses_ex(jd_ut, lat, lon, b'P', SEFLAGS)
+            if len(result) == 3:
+                _, ascmc, _ = result
+            else:
+                ascmc = result[1]  # Handle case where only 2 values returned
+            asc = norm360(safe_extract_float(ascmc[0]))  # Ascendant is at index 0
+            return asc, None  # cusps computed later if asked
         else:
-            cusps, ascmc = result  # Handle case where only 2 values returned
-        asc = norm360(safe_extract_float(ascmc[0]))  # Ascendant is at index 0
-        return asc, [norm360(safe_extract_float(c)) for c in cusps[1:13]]
+            result = swe.houses_ex(jd_ut, lat, lon, hcode.encode(), SEFLAGS)
+            if len(result) == 3:
+                cusps, ascmc, _ = result
+            else:
+                cusps, ascmc = result  # Handle case where only 2 values returned
+            asc = norm360(safe_extract_float(ascmc[0]))  # Ascendant is at index 0
+            return asc, [norm360(safe_extract_float(c)) for c in cusps[1:13]]
 
 def compute_planets(jd_ut: float, nodeType: str):
     """Compute planetary positions and speeds"""

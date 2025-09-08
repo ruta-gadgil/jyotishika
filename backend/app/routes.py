@@ -35,7 +35,7 @@ def chart():
         }), 400
 
     try:
-        dt_utc = to_utc(payload.datetime, payload.tz, payload.utcOffsetMinutes)
+        dt_utc = to_utc(payload.datetime, payload.tz, payload.utcOffsetMinutes, payload.latitude, payload.longitude)
         jd_ut = julian_day_utc(dt_utc)
 
         # initialize (idempotent ok)
