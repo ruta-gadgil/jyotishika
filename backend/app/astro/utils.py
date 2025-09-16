@@ -2,9 +2,30 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional
 import pytz
+from timezonefinder import TimezoneFinder
+
+# Initialize timezone finder (expensive operation, so do it once)
+_tf = TimezoneFinder()
 
 def detect_timezone_from_coordinates(latitude: float, longitude: float) -> str:
-    """Detect timezone from latitude and longitude coordinates"""
+    """Detect timezone from latitude and longitude coordinates using timezonefinder library"""
+    try:
+        # Use timezonefinder for accurate timezone detection
+        detected_tz = _tf.timezone_at(lat=latitude, lng=longitude)
+        
+        if detected_tz is not None:
+            return detected_tz
+        
+        # Fallback to simple detection for edge cases
+        return _fallback_timezone_detection(latitude, longitude)
+        
+    except Exception as e:
+        # If timezonefinder fails, use fallback
+        print(f"Warning: timezonefinder failed ({e}), using fallback detection")
+        return _fallback_timezone_detection(latitude, longitude)
+
+def _fallback_timezone_detection(latitude: float, longitude: float) -> str:
+    """Fallback timezone detection for edge cases or when timezonefinder fails"""
     # Simple timezone detection based on longitude
     # This is a basic implementation - for production, consider using a more sophisticated library
     
@@ -20,8 +41,8 @@ def detect_timezone_from_coordinates(latitude: float, longitude: float) -> str:
     elif 25 <= latitude <= 49 and -106 <= longitude <= -84:
         return "America/Chicago"
     
-    # US Mountain: roughly 31°N to 49°N, longitude 102°W to 125°W
-    elif 31 <= latitude <= 49 and -125 <= longitude <= -102:
+    # US Mountain: roughly 31°N to 49°N, longitude 102°W to 114°W
+    elif 31 <= latitude <= 49 and -114 <= longitude <= -102:
         return "America/Denver"
     
     # US Pacific: roughly 32°N to 49°N, longitude 114°W to 125°W
