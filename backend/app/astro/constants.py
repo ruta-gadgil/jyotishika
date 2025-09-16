@@ -8,6 +8,9 @@ PLANETS = [
     ("Mars", swe.MARS),
     ("Jupiter", swe.JUPITER),
     ("Saturn", swe.SATURN),
+    ("Uranus", swe.URANUS),
+    ("Neptune", swe.NEPTUNE),
+    ("Pluto", swe.PLUTO),
     ("Rahu", "NODE"),   # special handling
     ("Ketu", "KETU"),   # derived
 ]
