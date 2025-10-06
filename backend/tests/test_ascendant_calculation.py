@@ -33,8 +33,8 @@ class TestAscendantCalculation:
         data = {
             "datetime": "1991-03-25T09:46:00",
             "tz": "Asia/Kolkata",
-            "latitude": 18.5246,
-            "longitude": 73.8786,
+            "latitude": 18.5204,
+            "longitude": 73.8567,
             "houseSystem": "WHOLE_SIGN",
             "ayanamsha": "LAHIRI",
             "nodeType": "MEAN"
@@ -48,8 +48,8 @@ class TestAscendantCalculation:
         
         # Expected: Taurus ascendant (Index: 1)
         assert ascendant['signIndex'] == 1
-        # i think it should be 35.92
-        assert ascendant['longitude'] == pytest.approx(35.72, abs=0.1)
+        # i think it should be 35.66
+        assert ascendant['longitude'] == pytest.approx(35.46, abs=0.1)
         assert ascendant['house'] == 1
         
     

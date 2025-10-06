@@ -6,6 +6,11 @@ A Flask-based backend API for computing vedic astrology charts using Swiss Ephem
 
 - **Ascendant Calculation**: Sidereal (Lahiri) ascendant computation
 - **Planetary Positions**: Longitudes, speeds, and retrograde motion
+- **Nakshatra & Navamsha (NEW)**: For every planet, response includes
+  - `nakshatra`: `{ name, index }` (1–27)
+  - `pada`: integer 1–4
+  - `navamsha`: `{ sign, signIndex, ordinal, degreeInNavamsha }`
+  - `navamshaNakshatraPada`: `{ nakshatra, pada }`
 - **House Systems**: Support for Whole Sign, Equal, and Placidus
 - **Ayanamsha**: Lahiri, Raman, and Krishnamurti
 - **Node Types**: Mean and True nodes (Rahu/Ketu)
@@ -57,6 +62,32 @@ curl -X POST http://localhost:8080/chart \
   }'
 ```
 
+Example response (truncated):
+
+```json
+{
+  "metadata": {
+    "system": "sidereal",
+    "ayanamsha": "LAHIRI"
+  },
+  "ascendant": { "longitude": 70.04, "signIndex": 2, "house": 1 },
+  "planets": [
+    {
+      "planet": "Sun",
+      "longitude": 340.28,
+      "speed": 0.9909,
+      "retrograde": false,
+      "signIndex": 11,
+      "nakshatra": { "name": "Shatabhisha", "index": 24 },
+      "pada": 2,
+      "navamsha": { "sign": "Capricorn", "signIndex": 9, "ordinal": 6, "degreeInNavamsha": 1.2345 },
+      "navamshaNakshatraPada": { "nakshatra": "Shatabhisha", "pada": 2 },
+      "house": 10
+    }
+  ]
+}
+```
+
 #### GET /healthz
 
 Health check endpoint:
@@ -81,6 +112,13 @@ Environment variables:
 ```bash
 make test
 ```
+
+Current known failing test (subject to verification):
+
+- `backend/tests/test_ascendant_calculation.py::TestAscendantCalculation::test_ascendant_calculation_mumbai`
+  - Expected ascendant longitude: 35.72 ± 0.1
+  - Actual ascendant longitude: 35.49
+  - Input: 1991-03-25T09:46:00 Asia/Kolkata, lat 18.5246, lon 73.8786, WHOLE_SIGN, LAHIRI, MEAN
 
 ### Code Formatting
 

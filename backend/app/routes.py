@@ -1,7 +1,15 @@
 from flask import Blueprint, request, jsonify, current_app
 from .schemas import ChartRequest
 from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps
-from .astro.utils import to_utc, sign_index, house_from_sign, norm360, format_utc_offset
+from .astro.utils import (
+    to_utc,
+    sign_index,
+    house_from_sign,
+    norm360,
+    format_utc_offset,
+    get_nakshatra_and_pada,
+    get_navamsha_info,
+)
 import logging
 
 bp = Blueprint("api", __name__)
@@ -55,6 +63,22 @@ def chart():
             rec["longitude"] = round(p["longitude"], 2)  # 2 decimal places for longitude
             rec["speed"] = round(p["speed"], 4)          # 4 decimal places for speed
             
+            # Always include nakshatra, pada, and navamsha details (sidereal longitudes)
+            nak_name, nak_index_1, pada_1to4 = get_nakshatra_and_pada(p["longitude"])
+            nav_info = get_navamsha_info(p["longitude"])  # contains sign/signIndex/ordinal/degreeInNavamsha and mapping
+            rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
+            rec["pada"] = pada_1to4
+            rec["navamsha"] = {
+                "sign": nav_info["sign"],
+                "signIndex": nav_info["signIndex"],
+                "ordinal": nav_info["ordinal"],
+                "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
+            }
+            rec["navamshaNakshatraPada"] = {
+                "nakshatra": nav_info["navamshaNakshatra"],
+                "pada": nav_info["navamshaPada"],
+            }
+
             if payload.include.signsForEachPlanet:
                 rec["signIndex"] = sign_index(p["longitude"])
             if payload.houseSystem == "WHOLE_SIGN" and payload.include.housesForEachPlanet:

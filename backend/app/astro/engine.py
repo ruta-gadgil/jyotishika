@@ -26,44 +26,45 @@ def safe_extract_float(value):
             return 0.0
 
 def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str):
-    """Calculate ascendant and house cusps for Vedic astrology using sidereal conversion"""
+    """Calculate ascendant and house cusps for Vedic astrology using sidereal conversion.
+
+    Compute tropical houses then convert to sidereal using current ayanamsha,
+    matching existing expectations elsewhere in the code/tests.
+    """
     try:
-        # Calculate houses using Swiss Ephemeris
-        # swe.houses() returns (cusps, ascmc) where:
-        # cusps[1-12] are the house cusps (cusps[0] is unused)
-        # ascmc[0] = Ascendant, ascmc[1] = MC, ascmc[2] = ARMC, ascmc[3] = Vertex
+        # Calculate houses using Swiss Ephemeris (tropical)
         cusps, ascmc = swe.houses(jd_ut, lat, lon, b'P')
-        
-        # Extract the ascendant (in tropical longitude)
+
+        # Extract the ascendant (tropical longitude)
         ascendant_tropical = ascmc[0]
-        
-        # Convert to sidereal (Vedic) using Lahiri Ayanamsa
-        # Set ayanamsa to Lahiri (most commonly used in Vedic astrology)
-        swe.set_sid_mode(swe.SIDM_LAHIRI)
+
+        # Convert to sidereal using ayanamsha set during init_ephemeris
         ayanamsa = swe.get_ayanamsa(jd_ut)
-        
+
         # Convert ascendant to sidereal
         ascendant_sidereal = (ascendant_tropical - ayanamsa) % 360
-        
+
         # Handle different house systems
         hcode = HOUSE_CODES[houseSystem]
         if hcode == "W":
-            # For whole sign houses, return ascendant and None for cusps
+            # Whole sign: return ascendant; cusps computed later if requested
             return ascendant_sidereal, None
         else:
-            # Convert house cusps to sidereal
+            # Convert house cusps to sidereal; handle different indexing conventions
             houses_sidereal = []
-            for i in range(1, 13):  # Houses 1-12
-                cusp_sidereal = (cusps[i] - ayanamsa) % 360
+            # Some SWEPY builds return cusps[1..12] (len>=13), others 0..11 (len==12)
+            index_offset = 1 if len(cusps) >= 13 else 0
+            for i in range(12):  # 12 houses
+                cusp_val = cusps[i + index_offset]
+                cusp_sidereal = (cusp_val - ayanamsa) % 360
                 houses_sidereal.append(cusp_sidereal)
-            
             return ascendant_sidereal, houses_sidereal
-            
+
     except Exception as e:
         print(f"Error calculating houses: {e}")
         # Fallback to original logic if sidereal conversion fails
         hcode = HOUSE_CODES[houseSystem]
-        
+
         if hcode == "W":
             # Use Placidus internally just to get ASC, then replace cusps with whole sign bins.
             result = swe.houses_ex(jd_ut, lat, lon, b'P', SEFLAGS)
@@ -83,8 +84,10 @@ def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str)
             return asc, [norm360(safe_extract_float(c)) for c in cusps[1:13]]
 
 def compute_planets(jd_ut: float, nodeType: str):
-    """Compute planetary positions and speeds"""
+    """Compute planetary positions and speeds using Lahiri ayanamsha (sidereal)."""
     out = []
+    # Enforce Lahiri for planet computations as requested
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
     # Rahu (node)
     node_body = swe.MEAN_NODE if nodeType == "MEAN" else swe.TRUE_NODE
     # Precompute node
