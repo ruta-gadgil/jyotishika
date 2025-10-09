@@ -52,8 +52,6 @@ def test_chart_endpoint_basic(client):
         assert 'pada' in p and 1 <= p['pada'] <= 4
         assert 'navamsha' in p and isinstance(p['navamsha'], dict)
         assert 'sign' in p['navamsha'] and 'ordinal' in p['navamsha'] and 'degreeInNavamsha' in p['navamsha']
-        assert 'navamshaNakshatraPada' in p and isinstance(p['navamshaNakshatraPada'], dict)
-        assert 'nakshatra' in p['navamshaNakshatraPada'] and 'pada' in p['navamshaNakshatraPada']
 
 def test_chart_endpoint_sf(client):
     """Test chart calculation for San Francisco"""

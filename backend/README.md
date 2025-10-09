@@ -10,7 +10,7 @@ A Flask-based backend API for computing vedic astrology charts using Swiss Ephem
   - `nakshatra`: `{ name, index }` (1–27)
   - `pada`: integer 1–4
   - `navamsha`: `{ sign, signIndex, ordinal, degreeInNavamsha }`
-  - `navamshaNakshatraPada`: `{ nakshatra, pada }`
+    - Uses element-based calculation: Fire→Aries, Earth→Capricorn, Air→Libra, Water→Cancer
 - **House Systems**: Support for Whole Sign, Equal, and Placidus
 - **Ayanamsha**: Lahiri, Raman, and Krishnamurti
 - **Node Types**: Mean and True nodes (Rahu/Ketu)
@@ -81,7 +81,6 @@ Example response (truncated):
       "nakshatra": { "name": "Shatabhisha", "index": 24 },
       "pada": 2,
       "navamsha": { "sign": "Capricorn", "signIndex": 9, "ordinal": 6, "degreeInNavamsha": 1.2345 },
-      "navamshaNakshatraPada": { "nakshatra": "Shatabhisha", "pada": 2 },
       "house": 10
     }
   ]
@@ -113,8 +112,23 @@ Environment variables:
 make test
 ```
 
-Current known failing test (subject to verification):
+**Test Coverage:**
+- **Nakshatra & Navamsha**: Comprehensive tests for element-based navamsha calculations
+- **Ascendant Calculation**: Multiple locations, times, and ayanamsha systems
+- **Planetary Positions**: Sidereal calculations with Lahiri ayanamsha
+- **API Endpoints**: Full request/response validation
 
+**Navamsha Calculation Method:**
+The API uses traditional Vedic element-based navamsha calculation:
+- Each sign (30°) is divided into 9 navamshas of 3°20' each
+- Starting navamsha sign depends on the element of the base sign:
+  - **Fire** (Aries, Leo, Sagittarius) → Start at Aries
+  - **Earth** (Taurus, Virgo, Capricorn) → Start at Capricorn  
+  - **Air** (Gemini, Libra, Aquarius) → Start at Libra
+  - **Water** (Cancer, Scorpio, Pisces) → Start at Cancer
+- Each subsequent navamsha progresses sign by sign in zodiacal order
+
+**Known Test Issue:**
 - `backend/tests/test_ascendant_calculation.py::TestAscendantCalculation::test_ascendant_calculation_mumbai`
   - Expected ascendant longitude: 35.72 ± 0.1
   - Actual ascendant longitude: 35.49

@@ -10,9 +10,10 @@ from .constants import (
     NAKSHATRA_SPAN_DEG,
     PADA_SPAN_DEG,
     ZODIAC_SIGNS,
-    MOVABLE_SIGNS,
-    FIXED_SIGNS,
-    DUAL_SIGNS,
+    FIRE_SIGNS,
+    EARTH_SIGNS,
+    AIR_SIGNS,
+    WATER_SIGNS,
 )
 
 # Initialize timezone finder (expensive operation, so do it once)
@@ -128,19 +129,22 @@ def get_nakshatra_and_pada(longitude_sidereal: float) -> Tuple[str, int, int]:
     return NAKSHATRA_NAMES[nak_index_0], nak_index_0 + 1, pada_1to4
 
 
-def _navamsha_start_sign_index_for_modality(sign_index_0: int) -> int:
-    """Return starting navamsha sign index for a base sign's modality.
+def _navamsha_start_sign_index_for_element(sign_index_0: int) -> int:
+    """Return starting navamsha sign index for a base sign's element.
 
-    - Movable: Aries (0)
-    - Fixed: Capricorn (9)
-    - Dual: Sagittarius (8)
+    - Fire (Aries, Leo, Sagittarius): Aries (0)
+    - Earth (Taurus, Virgo, Capricorn): Capricorn (9)
+    - Air (Gemini, Libra, Aquarius): Libra (6)
+    - Water (Cancer, Scorpio, Pisces): Cancer (3)
     """
-    if sign_index_0 in MOVABLE_SIGNS:
-        return 0
-    if sign_index_0 in FIXED_SIGNS:
-        return 9
-    # Dual
-    return 8
+    if sign_index_0 in FIRE_SIGNS:
+        return 0  # Aries
+    if sign_index_0 in EARTH_SIGNS:
+        return 9  # Capricorn
+    if sign_index_0 in AIR_SIGNS:
+        return 6  # Libra
+    # Water
+    return 3  # Cancer
 
 
 def get_navamsha_info(longitude_sidereal: float) -> Dict[str, object]:
@@ -151,8 +155,6 @@ def get_navamsha_info(longitude_sidereal: float) -> Dict[str, object]:
       - sign: sign name
       - ordinal: 1..9 (navamsha number within the sign)
       - degreeInNavamsha: float degrees [0, 3.3333..)
-      - navamshaNakshatra: name of the nakshatra corresponding to this navamsha
-      - navamshaPada: 1..4 pada within that nakshatra
     """
     lon = longitude_sidereal % 360.0
     base_sign_index = int(lon // 30.0)
@@ -161,22 +163,14 @@ def get_navamsha_info(longitude_sidereal: float) -> Dict[str, object]:
     ordinal_1to9 = int(deg_in_sign // nav_span) + 1
     degree_in_navamsha = deg_in_sign - (ordinal_1to9 - 1) * nav_span
 
-    # Determine navamsha sign by modality rule
-    start_sign = _navamsha_start_sign_index_for_modality(base_sign_index)
+    # Determine navamsha sign by element rule
+    start_sign = _navamsha_start_sign_index_for_element(base_sign_index)
     nav_sign_index = (start_sign + (ordinal_1to9 - 1)) % 12
     nav_sign_name = ZODIAC_SIGNS[nav_sign_index]
-
-    # Each navamsha equals one pada; compute global pada index (1..108)
-    global_pada_index = int(lon // (360.0 / 108.0)) + 1
-    nav_nak_index_1 = (global_pada_index - 1) // 4 + 1
-    nav_pada_1to4 = ((global_pada_index - 1) % 4) + 1
-    nav_nak_name = NAKSHATRA_NAMES[nav_nak_index_1 - 1]
 
     return {
         "signIndex": nav_sign_index,
         "sign": nav_sign_name,
         "ordinal": ordinal_1to9,
         "degreeInNavamsha": degree_in_navamsha,
-        "navamshaNakshatra": nav_nak_name,
-        "navamshaPada": nav_pada_1to4,
     }

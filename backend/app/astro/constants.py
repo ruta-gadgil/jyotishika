@@ -40,10 +40,11 @@ NAKSHATRA_NAMES = [
     "Purva Bhadrapada", "Uttara Bhadrapada", "Revati",
 ]
 
-# Sign modality indices for quick checks (0=Aries ... 11=Pisces)
-MOVABLE_SIGNS = {0, 3, 6, 9}
-FIXED_SIGNS = {1, 4, 7, 10}
-DUAL_SIGNS = {2, 5, 8, 11}
+# Sign element indices for navamsha calculation (0=Aries ... 11=Pisces)
+FIRE_SIGNS = {0, 4, 8}    # Aries, Leo, Sagittarius
+EARTH_SIGNS = {1, 5, 9}   # Taurus, Virgo, Capricorn
+AIR_SIGNS = {2, 6, 10}    # Gemini, Libra, Aquarius
+WATER_SIGNS = {3, 7, 11}  # Cancer, Scorpio, Pisces
 
 # Geometric spans in degrees
 NAKSHATRA_SPAN_DEG = 360.0 / 27.0

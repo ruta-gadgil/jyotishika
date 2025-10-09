@@ -74,10 +74,6 @@ def chart():
                 "ordinal": nav_info["ordinal"],
                 "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
             }
-            rec["navamshaNakshatraPada"] = {
-                "nakshatra": nav_info["navamshaNakshatra"],
-                "pada": nav_info["navamshaPada"],
-            }
 
             if payload.include.signsForEachPlanet:
                 rec["signIndex"] = sign_index(p["longitude"])
