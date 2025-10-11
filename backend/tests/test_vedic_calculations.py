@@ -1,35 +1,35 @@
 import math
 
-from app.astro.utils import get_nakshatra_and_pada, get_navamsha_info
+from app.astro.utils import get_nakshatra_and_charan, get_navamsha_info
 
 
 def approx_equal(a: float, b: float, eps: float = 1e-7) -> bool:
     return abs(a - b) <= eps
 
 
-def test_nakshatra_pada_boundaries():
-    # 0° -> Ashwini, pada 1
-    name, index1, pada = get_nakshatra_and_pada(0.0)
+def test_nakshatra_charan_boundaries():
+    # 0° -> Ashwini, charan 1
+    name, index1, charan = get_nakshatra_and_charan(0.0)
     assert name == "Ashwini"
     assert index1 == 1
-    assert pada == 1
+    assert charan == 1
 
-    # Just before 13°20' (13.333333...) -> Ashwini, pada 4
+    # Just before 13°20' (13.333333...) -> Ashwini, charan 4
     edge = 360.0 / 27.0  # 13.3333333...
-    name, index1, pada = get_nakshatra_and_pada(edge - 1e-6)
+    name, index1, charan = get_nakshatra_and_charan(edge - 1e-6)
     assert name == "Ashwini"
     assert index1 == 1
-    assert pada == 4
+    assert charan == 4
 
-    # Just after boundary -> Bharani, pada 1
-    name, index1, pada = get_nakshatra_and_pada(edge + 1e-6)
+    # Just after boundary -> Bharani, charan 1
+    name, index1, charan = get_nakshatra_and_charan(edge + 1e-6)
     assert name == "Bharani"
     assert index1 == 2
-    assert pada == 1
+    assert charan == 1
 
 
 def test_navamsha_basic_aries():
-    # 0° Aries -> ordinal 1, degree 0, navamsha sign Aries, Ashwini pada 1
+    # 0° Aries -> ordinal 1, degree 0, navamsha sign Aries
     info = get_navamsha_info(0.0)
     assert info["ordinal"] == 1
     assert approx_equal(info["degreeInNavamsha"], 0.0)

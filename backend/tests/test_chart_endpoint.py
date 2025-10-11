@@ -45,11 +45,19 @@ def test_chart_endpoint_basic(client):
     assert 'planets' in result
     assert len(result['planets']) == 12  # Sun, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Rahu, Ketu
 
+    # Verify new fields exist on ascendant
+    ascendant = result['ascendant']
+    assert 'nakshatra' in ascendant and isinstance(ascendant['nakshatra'], dict)
+    assert 'name' in ascendant['nakshatra'] and 'index' in ascendant['nakshatra']
+    assert 'charan' in ascendant and 1 <= ascendant['charan'] <= 4
+    assert 'navamsha' in ascendant and isinstance(ascendant['navamsha'], dict)
+    assert 'sign' in ascendant['navamsha'] and 'ordinal' in ascendant['navamsha'] and 'degreeInNavamsha' in ascendant['navamsha']
+
     # Verify new fields exist on each planet
     for p in result['planets']:
         assert 'nakshatra' in p and isinstance(p['nakshatra'], dict)
         assert 'name' in p['nakshatra'] and 'index' in p['nakshatra']
-        assert 'pada' in p and 1 <= p['pada'] <= 4
+        assert 'charan' in p and 1 <= p['charan'] <= 4
         assert 'navamsha' in p and isinstance(p['navamsha'], dict)
         assert 'sign' in p['navamsha'] and 'ordinal' in p['navamsha'] and 'degreeInNavamsha' in p['navamsha']
 

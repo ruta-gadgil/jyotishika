@@ -48,4 +48,4 @@ WATER_SIGNS = {3, 7, 11}  # Cancer, Scorpio, Pisces
 
 # Geometric spans in degrees
 NAKSHATRA_SPAN_DEG = 360.0 / 27.0
-PADA_SPAN_DEG = NAKSHATRA_SPAN_DEG / 4.0  # 3°20'
+CHARAN_SPAN_DEG = NAKSHATRA_SPAN_DEG / 4.0  # 3°20'

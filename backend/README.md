@@ -6,9 +6,9 @@ A Flask-based backend API for computing vedic astrology charts using Swiss Ephem
 
 - **Ascendant Calculation**: Sidereal (Lahiri) ascendant computation
 - **Planetary Positions**: Longitudes, speeds, and retrograde motion
-- **Nakshatra & Navamsha (NEW)**: For every planet, response includes
+- **Nakshatra & Navamsha (NEW)**: For ascendant and every planet, response includes
   - `nakshatra`: `{ name, index }` (1–27)
-  - `pada`: integer 1–4
+  - `charan`: integer 1–4
   - `navamsha`: `{ sign, signIndex, ordinal, degreeInNavamsha }`
     - Uses element-based calculation: Fire→Aries, Earth→Capricorn, Air→Libra, Water→Cancer
 - **House Systems**: Support for Whole Sign, Equal, and Placidus
@@ -70,7 +70,14 @@ Example response (truncated):
     "system": "sidereal",
     "ayanamsha": "LAHIRI"
   },
-  "ascendant": { "longitude": 70.04, "signIndex": 2, "house": 1 },
+  "ascendant": { 
+    "longitude": 70.04, 
+    "signIndex": 2, 
+    "house": 1,
+    "nakshatra": { "name": "Punarvasu", "index": 7 },
+    "charan": 2,
+    "navamsha": { "sign": "Leo", "signIndex": 4, "ordinal": 3, "degreeInNavamsha": 1.2345 }
+  },
   "planets": [
     {
       "planet": "Sun",
@@ -79,7 +86,7 @@ Example response (truncated):
       "retrograde": false,
       "signIndex": 11,
       "nakshatra": { "name": "Shatabhisha", "index": 24 },
-      "pada": 2,
+      "charan": 2,
       "navamsha": { "sign": "Capricorn", "signIndex": 9, "ordinal": 6, "degreeInNavamsha": 1.2345 },
       "house": 10
     }

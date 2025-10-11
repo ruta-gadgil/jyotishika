@@ -8,7 +8,7 @@ from timezonefinder import TimezoneFinder
 from .constants import (
     NAKSHATRA_NAMES,
     NAKSHATRA_SPAN_DEG,
-    PADA_SPAN_DEG,
+    CHARAN_SPAN_DEG,
     ZODIAC_SIGNS,
     FIRE_SIGNS,
     EARTH_SIGNS,
@@ -116,8 +116,8 @@ def format_utc_offset(offset_minutes: int) -> str:
 
 # ------------------------- Vedic computations -------------------------
 
-def get_nakshatra_and_pada(longitude_sidereal: float) -> Tuple[str, int, int]:
-    """Return (nakshatra_name, nakshatra_index_1based, pada_1to4) from sidereal longitude.
+def get_nakshatra_and_charan(longitude_sidereal: float) -> Tuple[str, int, int]:
+    """Return (nakshatra_name, nakshatra_index_1based, charan_1to4) from sidereal longitude.
 
     longitude_sidereal: degrees in [0, 360)
     """
@@ -125,8 +125,8 @@ def get_nakshatra_and_pada(longitude_sidereal: float) -> Tuple[str, int, int]:
     lon = longitude_sidereal % 360.0
     nak_index_0 = int(lon // NAKSHATRA_SPAN_DEG)  # 0..26
     within_nak = lon - nak_index_0 * NAKSHATRA_SPAN_DEG
-    pada_1to4 = int(within_nak // PADA_SPAN_DEG) + 1  # 1..4
-    return NAKSHATRA_NAMES[nak_index_0], nak_index_0 + 1, pada_1to4
+    charan_1to4 = int(within_nak // CHARAN_SPAN_DEG) + 1  # 1..4
+    return NAKSHATRA_NAMES[nak_index_0], nak_index_0 + 1, charan_1to4
 
 
 def _navamsha_start_sign_index_for_element(sign_index_0: int) -> int:
@@ -143,8 +143,11 @@ def _navamsha_start_sign_index_for_element(sign_index_0: int) -> int:
         return 9  # Capricorn
     if sign_index_0 in AIR_SIGNS:
         return 6  # Libra
-    # Water
-    return 3  # Cancer
+    if sign_index_0 in WATER_SIGNS:
+        return 3  # Cancer
+    
+    # Default error case for unexpected sign indices
+    raise ValueError(f"Invalid sign index {sign_index_0}. Must be 0-11 (Aries-Pisces).")
 
 
 def get_navamsha_info(longitude_sidereal: float) -> Dict[str, object]:

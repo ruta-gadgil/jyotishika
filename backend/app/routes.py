@@ -7,7 +7,7 @@ from .astro.utils import (
     house_from_sign,
     norm360,
     format_utc_offset,
-    get_nakshatra_and_pada,
+    get_nakshatra_and_charan,
     get_navamsha_info,
 )
 import logging
@@ -51,6 +51,10 @@ def chart():
 
         asc_long, cusps = ascendant_and_houses(jd_ut, payload.latitude, payload.longitude, payload.houseSystem)
         asc_sign = sign_index(asc_long)
+        
+        # Calculate nakshatra, charan, and navamsha for ascendant
+        asc_nak_name, asc_nak_index_1, asc_charan_1to4 = get_nakshatra_and_charan(asc_long)
+        asc_nav_info = get_navamsha_info(asc_long)
 
         planets = compute_planets(jd_ut, payload.nodeType)
         print(asc_sign, planets)
@@ -63,11 +67,11 @@ def chart():
             rec["longitude"] = round(p["longitude"], 2)  # 2 decimal places for longitude
             rec["speed"] = round(p["speed"], 4)          # 4 decimal places for speed
             
-            # Always include nakshatra, pada, and navamsha details (sidereal longitudes)
-            nak_name, nak_index_1, pada_1to4 = get_nakshatra_and_pada(p["longitude"])
+            # Always include nakshatra, charan, and navamsha details (sidereal longitudes)
+            nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
             nav_info = get_navamsha_info(p["longitude"])  # contains sign/signIndex/ordinal/degreeInNavamsha and mapping
             rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
-            rec["pada"] = pada_1to4
+            rec["charan"] = charan_1to4
             rec["navamsha"] = {
                 "sign": nav_info["sign"],
                 "signIndex": nav_info["signIndex"],
@@ -110,7 +114,15 @@ def chart():
             "ascendant": {
                 "longitude": round(asc_long, 2),  # Round ascendant longitude for frontend
                 "signIndex": asc_sign,
-                "house": 1
+                "house": 1,
+                "nakshatra": {"name": asc_nak_name, "index": asc_nak_index_1},
+                "charan": asc_charan_1to4,
+                "navamsha": {
+                    "sign": asc_nav_info["sign"],
+                    "signIndex": asc_nav_info["signIndex"],
+                    "ordinal": asc_nav_info["ordinal"],
+                    "degreeInNavamsha": round(asc_nav_info["degreeInNavamsha"], 4),
+                }
             },
             "planets": result_planets
         }
