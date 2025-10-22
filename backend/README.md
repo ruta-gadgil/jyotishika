@@ -6,11 +6,17 @@ A Flask-based backend API for computing vedic astrology charts using Swiss Ephem
 
 - **Ascendant Calculation**: Sidereal (Lahiri) ascendant computation
 - **Planetary Positions**: Longitudes, speeds, and retrograde motion
-- **Nakshatra & Navamsha (NEW)**: For ascendant and every planet, response includes
+- **Nakshatra & Navamsha**: For ascendant and every planet, response includes
   - `nakshatra`: `{ name, index }` (1–27)
   - `charan`: integer 1–4
   - `navamsha`: `{ sign, signIndex, ordinal, degreeInNavamsha }`
     - Uses element-based calculation: Fire→Aries, Earth→Capricorn, Air→Libra, Water→Cancer
+- **Vimshottari Dasha System**: Complete 120-year planetary periods calculation
+  - Mahadasha, Antardasha, and Pratyantardasha periods
+  - Configurable depth (1-3 levels)
+  - Date range filtering and active period marking
+  - Defaults to full 120-year cycle from birth for prediction
+  - Based on Moon's nakshatra position at birth
 - **House Systems**: Support for Whole Sign, Equal, and Placidus
 - **Ayanamsha**: Lahiri, Raman, and Krishnamurti
 - **Node Types**: Mean and True nodes (Rahu/Ketu)
@@ -94,6 +100,63 @@ Example response (truncated):
 }
 ```
 
+#### POST /dasha
+
+Calculate Vimshottari dasha periods:
+
+```bash
+curl -X POST http://localhost:8080/dasha \
+  -H "Content-Type: application/json" \
+  -d '{
+    "datetime": "1991-03-25T09:46:00",
+    "latitude": 18.5204,
+    "longitude": 73.8567,
+    "ayanamsha": "LAHIRI",
+    "depth": 3,
+    "fromDate": "1991-03-25T00:00:00Z",
+    "toDate": "2025-12-31T23:59:59Z",
+    "atDate": "2024-01-15T12:00:00Z"
+  }'
+```
+
+**Note**: `fromDate`, `toDate`, and `atDate` are optional parameters. If `toDate` is not provided, it defaults to 120 years from birth for complete Vimshottari cycle prediction.
+
+Example response (truncated):
+
+```json
+{
+  "timeline": [
+    {
+      "lord": "Moon",
+      "level": 1,
+      "start": "1991-03-25T09:46:00Z",
+      "end": "2001-03-25T09:46:00Z",
+      "durationDays": 3652.5,
+      "yearsShare": 10,
+      "active": false,
+      "antardasha": [
+        {
+          "lord": "Moon",
+          "level": 2,
+          "start": "1991-03-25T09:46:00Z",
+          "end": "1992-01-25T09:46:00Z",
+          "durationDays": 304.375,
+          "yearsShare": 10,
+          "active": false,
+          "pratyantardasha": [...]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "system": "vimshottari",
+    "depth": 3,
+    "fromDate": "1991-03-25T00:00:00Z",
+    "toDate": "2025-12-31T23:59:59Z"
+  }
+}
+```
+
 #### GET /healthz
 
 Health check endpoint:
@@ -123,6 +186,7 @@ make test
 - **Nakshatra & Navamsha**: Comprehensive tests for element-based navamsha calculations
 - **Ascendant Calculation**: Multiple locations, times, and ayanamsha systems
 - **Planetary Positions**: Sidereal calculations with Lahiri ayanamsha
+- **Vimshottari Dasha**: Complete timeline calculation with nested periods
 - **API Endpoints**: Full request/response validation
 
 **Navamsha Calculation Method:**
@@ -134,6 +198,16 @@ The API uses traditional Vedic element-based navamsha calculation:
   - **Air** (Gemini, Libra, Aquarius) → Start at Libra
   - **Water** (Cancer, Scorpio, Pisces) → Start at Cancer
 - Each subsequent navamsha progresses sign by sign in zodiacal order
+
+**Vimshottari Dasha System:**
+The API implements the traditional 120-year Vimshottari dasha system:
+- **Mahadasha**: 9 planetary periods totaling 120 years (Ketu: 7, Venus: 20, Sun: 6, Moon: 10, Mars: 7, Rahu: 18, Jupiter: 16, Saturn: 19, Mercury: 17)
+- **Antardasha**: Each Mahadasha is subdivided into 9 sub-periods following the same planetary sequence
+- **Pratyantardasha**: Each Antardasha is further subdivided into 9 micro-periods
+- **Starting Lord**: Determined by Moon's nakshatra position at birth
+- **Balance Calculation**: Accounts for the remaining portion of the birth nakshatra
+- **Default Timeline**: When `toDate` is not specified, defaults to full 120-year cycle from birth for complete prediction
+- **Active Period Marking**: Optional `atDate` parameter marks which periods are currently active
 
 **Known Test Issue:**
 - `backend/tests/test_ascendant_calculation.py::TestAscendantCalculation::test_ascendant_calculation_mumbai`
@@ -172,6 +246,7 @@ backend/
 │   └── astro/
 │       ├── __init__.py
 │       ├── constants.py     # Astro constants
+│       ├── dasha.py         # Vimshottari dasha calculations
 │       ├── engine.py        # Swiss Ephemeris engine
 │       └── utils.py         # Utility functions
 ├── tests/

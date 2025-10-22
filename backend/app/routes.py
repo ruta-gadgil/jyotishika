@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
-from .schemas import ChartRequest
+from .schemas import ChartRequest, DashaRequest
 from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps
 from .astro.utils import (
     to_utc,
@@ -10,6 +10,8 @@ from .astro.utils import (
     get_nakshatra_and_charan,
     get_navamsha_info,
 )
+from .astro.dasha import calculate_vimshottari_timeline
+from datetime import datetime
 import logging
 
 bp = Blueprint("api", __name__)
@@ -148,6 +150,101 @@ def chart():
             "error": {
                 "code": "CALCULATION_ERROR",
                 "message": "Failed to calculate chart",
+                "details": {"error": str(e)}
+            }
+        }), 500
+
+
+@bp.route("/dasha", methods=["POST"])
+def dasha():
+    # Log and print request information
+    print(f"\n🔵 Dasha API Request received - Method: {request.method}, URL: {request.url}")
+    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    
+    current_app.logger.info(f"Dasha API Request received - Method: {request.method}, URL: {request.url}")
+    current_app.logger.info(f"Request Headers: {dict(request.headers)}")
+    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    
+    try:
+        payload = DashaRequest.model_validate_json(request.data)
+        # Log and print validated payload
+        print(f"✅ Validated Dasha Payload: {payload.model_dump()}")
+        current_app.logger.info(f"Validated Dasha Payload: {payload.model_dump()}")
+    except Exception as e:
+        # Log and print validation error
+        print(f"❌ Dasha request validation error: {str(e)}")
+        current_app.logger.error(f"Dasha request validation error: {str(e)}")
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": str(e),
+                "details": {"field": "request", "value": "invalid"}
+            }
+        }), 400
+
+    try:
+        # Convert datetime string to datetime object
+        birth_dt = datetime.fromisoformat(payload.datetime.replace('Z', '+00:00'))
+        
+        # Convert optional date strings to datetime objects
+        from_date = None
+        to_date = None
+        at_date = None
+        
+        if payload.fromDate:
+            from_date = datetime.fromisoformat(payload.fromDate.replace('Z', '+00:00'))
+        if payload.toDate:
+            to_date = datetime.fromisoformat(payload.toDate.replace('Z', '+00:00'))
+        if payload.atDate:
+            at_date = datetime.fromisoformat(payload.atDate.replace('Z', '+00:00'))
+        
+        # Calculate birth chart to get Moon's sidereal longitude
+        dt_utc = to_utc(payload.datetime, None, None, payload.latitude, payload.longitude)
+        jd_ut = julian_day_utc(dt_utc)
+        
+        # Initialize ephemeris
+        init_ephemeris(current_app.config["EPHE_PATH"], payload.ayanamsha)
+        
+        # Get Moon's sidereal longitude
+        planets = compute_planets(jd_ut, "MEAN")  # Use MEAN nodes for dasha calculation
+        moon_longitude_sidereal = None
+        
+        for planet in planets:
+            if planet["planet"] == "Moon":
+                moon_longitude_sidereal = planet["longitude"]
+                break
+        
+        if moon_longitude_sidereal is None:
+            raise ValueError("Could not calculate Moon's position")
+        
+        # Calculate Vimshottari timeline
+        timeline, metadata = calculate_vimshottari_timeline(
+            birth_utc=birth_dt,
+            moon_longitude_sidereal=moon_longitude_sidereal,
+            depth=payload.depth,
+            from_date=from_date,
+            to_date=to_date,
+            at_date=at_date
+        )
+        
+        result = {
+            "timeline": timeline,
+            "metadata": metadata
+        }
+        
+        # Log and print successful response
+        print(f"🎉 Dasha calculation successful - Response status: 200")
+        current_app.logger.info(f"Dasha calculation successful - Response status: 200")
+        return jsonify(result), 200
+        
+    except Exception as e:
+        # Log and print the full error for debugging
+        print(f"💥 Dasha calculation error: {str(e)}")
+        current_app.logger.error(f"Dasha calculation error: {str(e)}")
+        return jsonify({
+            "error": {
+                "code": "CALCULATION_ERROR",
+                "message": "Failed to calculate dasha",
                 "details": {"error": str(e)}
             }
         }), 500
