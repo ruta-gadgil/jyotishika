@@ -49,7 +49,7 @@ def chart():
         jd_ut = julian_day_utc(dt_utc)
 
         # initialize (idempotent ok)
-        init_ephemeris(current_app.config["EPHE_PATH"], payload.ayanamsha)
+        init_ephemeris(current_app.config["EPHE_PATH"], current_app.config["AYANAMSHA"])
 
         asc_long, cusps = ascendant_and_houses(jd_ut, payload.latitude, payload.longitude, payload.houseSystem)
         asc_sign = sign_index(asc_long)
@@ -106,7 +106,7 @@ def chart():
         out = {
             "metadata": {
                 "system": "sidereal",
-                "ayanamsha": payload.ayanamsha,
+                "ayanamsha": current_app.config["AYANAMSHA"],
                 "houseSystem": payload.houseSystem,
                 "nodeType": payload.nodeType,
                 "datetimeInput": payload.datetime,
@@ -203,7 +203,7 @@ def dasha():
         jd_ut = julian_day_utc(dt_utc)
         
         # Initialize ephemeris
-        init_ephemeris(current_app.config["EPHE_PATH"], payload.ayanamsha)
+        init_ephemeris(current_app.config["EPHE_PATH"], current_app.config["AYANAMSHA"])
         
         # Get Moon's sidereal longitude
         planets = compute_planets(jd_ut, "MEAN")  # Use MEAN nodes for dasha calculation

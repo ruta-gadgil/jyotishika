@@ -3,10 +3,17 @@ from datetime import datetime
 from .constants import PLANETS, AYANAMSHA, HOUSE_CODES, SEFLAGS
 from .utils import norm360, sign_index, house_from_sign
 
+# Module-level variable to track current ayanamsha
+_current_ayanamsha_key = None
+
 def init_ephemeris(ephe_path: str, ayanamsha_key: str):
     """Initialize Swiss Ephemeris with path and ayanamsha"""
+    global _current_ayanamsha_key
     swe.set_ephe_path(ephe_path)
-    swe.set_sid_mode(AYANAMSHA[ayanamsha_key])
+    _current_ayanamsha_key = ayanamsha_key
+    # For VEDANJANAM, use Lahiri mode internally (we'll apply offset manually)
+    sid_mode = AYANAMSHA[ayanamsha_key]
+    swe.set_sid_mode(sid_mode)
 
 def julian_day_utc(dt_utc: datetime) -> float:
     """Convert UTC datetime to Julian Day"""
@@ -25,6 +32,14 @@ def safe_extract_float(value):
         except (ValueError, TypeError):
             return 0.0
 
+def get_ayanamsa_value(jd_ut: float) -> float:
+    """Get ayanamsha value with custom offsets applied (e.g., VEDANJANAM = Lahiri + 6 arc minutes)"""
+    base_ayanamsa = swe.get_ayanamsa(jd_ut)
+    if _current_ayanamsha_key == "VEDANJANAM":
+        # Add 6 arc minutes (0.1 degrees) to Lahiri ayanamsha
+        return base_ayanamsa + 0.1
+    return base_ayanamsa
+
 def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str):
     """Calculate ascendant and house cusps for Vedic astrology using sidereal conversion.
 
@@ -39,7 +54,8 @@ def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str)
         ascendant_tropical = ascmc[0]
 
         # Convert to sidereal using ayanamsha set during init_ephemeris
-        ayanamsa = swe.get_ayanamsa(jd_ut)
+        # This applies custom offsets (e.g., VEDANJANAM = Lahiri + 6 arc minutes)
+        ayanamsa = get_ayanamsa_value(jd_ut)
 
         # Convert ascendant to sidereal
         ascendant_sidereal = (ascendant_tropical - ayanamsa) % 360
@@ -73,6 +89,9 @@ def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str)
             else:
                 ascmc = result[1]  # Handle case where only 2 values returned
             asc = norm360(safe_extract_float(ascmc[0]))  # Ascendant is at index 0
+            # Apply VEDANJANAM offset if needed (results are in Lahiri sidereal when VEDANJANAM is used)
+            if _current_ayanamsha_key == "VEDANJANAM":
+                asc = norm360(asc - 0.1)
             return asc, None  # cusps computed later if asked
         else:
             result = swe.houses_ex(jd_ut, lat, lon, hcode.encode(), SEFLAGS)
@@ -81,13 +100,17 @@ def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str)
             else:
                 cusps, ascmc = result  # Handle case where only 2 values returned
             asc = norm360(safe_extract_float(ascmc[0]))  # Ascendant is at index 0
-            return asc, [norm360(safe_extract_float(c)) for c in cusps[1:13]]
+            # Apply VEDANJANAM offset if needed (results are in Lahiri sidereal when VEDANJANAM is used)
+            if _current_ayanamsha_key == "VEDANJANAM":
+                asc = norm360(asc - 0.1)
+                cusps_sidereal = [norm360(safe_extract_float(c) - 0.1) for c in cusps[1:13]]
+            else:
+                cusps_sidereal = [norm360(safe_extract_float(c)) for c in cusps[1:13]]
+            return asc, cusps_sidereal
 
 def compute_planets(jd_ut: float, nodeType: str):
-    """Compute planetary positions and speeds using Lahiri ayanamsha (sidereal)."""
+    """Compute planetary positions and speeds using sidereal mode (ayanamsha set by init_ephemeris)."""
     out = []
-    # Enforce Lahiri for planet computations as requested
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
     # Rahu (node)
     node_body = swe.MEAN_NODE if nodeType == "MEAN" else swe.TRUE_NODE
     # Precompute node
@@ -121,6 +144,14 @@ def compute_planets(jd_ut: float, nodeType: str):
                 spd = 0.0
             
             lng = norm360(lng)
+        
+        # Apply VEDANJANAM offset if needed
+        # When VEDANJANAM is used, planets are computed in Lahiri sidereal mode
+        # To convert to Vedanjanam (Lahiri + 6 arc minutes), we subtract 0.1 degrees
+        # because: sidereal = tropical - ayanamsha, so increasing ayanamsha by 0.1 
+        # means decreasing sidereal by 0.1
+        if _current_ayanamsha_key == "VEDANJANAM":
+            lng = norm360(lng - 0.1)
             
         # Both Rahu and Ketu are always retrograde in Vedic astrology
         is_retrograde = spd < 0 if name not in ["Rahu", "Ketu"] else True

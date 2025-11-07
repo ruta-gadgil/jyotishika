@@ -19,6 +19,7 @@ AYANAMSHA = {
     "LAHIRI": swe.SIDM_LAHIRI,
     "RAMAN": swe.SIDM_RAMAN,
     "KRISHNAMURTI": swe.SIDM_KRISHNAMURTI,
+    "VEDANJANAM": swe.SIDM_LAHIRI,  # Custom: Lahiri + 6 arc minutes
 }
 
 HOUSE_CODES = {"WHOLE_SIGN": "W", "EQUAL": "E", "PLACIDUS": "P"}

@@ -13,7 +13,6 @@ class ChartRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     houseSystem: str = "WHOLE_SIGN"
-    ayanamsha: str = "LAHIRI"
     nodeType: str = "MEAN"
     include: IncludeFlags = IncludeFlags()
 
@@ -23,14 +22,6 @@ class ChartRequest(BaseModel):
         allowed = {"WHOLE_SIGN", "EQUAL", "PLACIDUS"}
         if v not in allowed: 
             raise ValueError(f"houseSystem must be one of {allowed}")
-        return v
-
-    @field_validator("ayanamsha")
-    @classmethod
-    def _ay(cls, v):
-        allowed = {"LAHIRI", "RAMAN", "KRISHNAMURTI"}
-        if v not in allowed: 
-            raise ValueError(f"ayanamsha must be one of {allowed}")
         return v
 
     @field_validator("nodeType")
@@ -70,19 +61,10 @@ class DashaRequest(BaseModel):
     datetime: str
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    ayanamsha: str = "LAHIRI"
     depth: int = 3  # 1..3; default 3
     fromDate: Optional[str] = None  # ISO-8601 UTC (e.g., 1991-03-25T04:16:00Z)
     toDate: Optional[str] = None
     atDate: Optional[str] = None
-
-    @field_validator("ayanamsha")
-    @classmethod
-    def _ay(cls, v):
-        allowed = {"LAHIRI", "RAMAN", "KRISHNAMURTI"}
-        if v not in allowed:
-            raise ValueError(f"ayanamsha must be one of {allowed}")
-        return v
 
     @field_validator("datetime")
     @classmethod
