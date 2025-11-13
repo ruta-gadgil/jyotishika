@@ -12,16 +12,29 @@ class ChartRequest(BaseModel):
     utcOffsetMinutes: Optional[int] = None
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    houseSystem: str = "WHOLE_SIGN"
+    houseSystem: Optional[str] = None
+    ayanamsha: Optional[str] = None
     nodeType: str = "MEAN"
     include: IncludeFlags = IncludeFlags()
 
     @field_validator("houseSystem")
     @classmethod
     def _hs(cls, v):
+        if v is None:
+            return v
         allowed = {"WHOLE_SIGN", "EQUAL", "PLACIDUS"}
         if v not in allowed: 
             raise ValueError(f"houseSystem must be one of {allowed}")
+        return v
+
+    @field_validator("ayanamsha")
+    @classmethod
+    def _ay(cls, v):
+        if v is None:
+            return v
+        allowed = {"LAHIRI", "RAMAN", "KRISHNAMURTI", "VEDANJANAM"}
+        if v not in allowed:
+            raise ValueError(f"ayanamsha must be one of {allowed}")
         return v
 
     @field_validator("nodeType")

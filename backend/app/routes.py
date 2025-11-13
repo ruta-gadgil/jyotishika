@@ -49,9 +49,11 @@ def chart():
         jd_ut = julian_day_utc(dt_utc)
 
         # initialize (idempotent ok)
-        init_ephemeris(current_app.config["EPHE_PATH"], current_app.config["AYANAMSHA"])
+        effective_ayanamsha = payload.ayanamsha or current_app.config["AYANAMSHA"]
+        effective_house_system = payload.houseSystem or current_app.config["HOUSE_SYSTEM"]
+        init_ephemeris(current_app.config["EPHE_PATH"], effective_ayanamsha)
 
-        asc_long, cusps = ascendant_and_houses(jd_ut, payload.latitude, payload.longitude, payload.houseSystem)
+        asc_long, cusps = ascendant_and_houses(jd_ut, payload.latitude, payload.longitude, effective_house_system)
         asc_sign = sign_index(asc_long)
         
         # Calculate nakshatra, charan, and navamsha for ascendant
@@ -83,7 +85,7 @@ def chart():
 
             if payload.include.signsForEachPlanet:
                 rec["signIndex"] = sign_index(p["longitude"])
-            if payload.houseSystem == "WHOLE_SIGN" and payload.include.housesForEachPlanet:
+            if effective_house_system == "WHOLE_SIGN" and payload.include.housesForEachPlanet:
                 rec["house"] = house_from_sign(rec.get("signIndex", sign_index(p["longitude"])), asc_sign)
             elif payload.include.housesForEachPlanet and cusps:
                 # For Placidus/Equal, we could call swe.house_pos for accuracy
@@ -106,8 +108,8 @@ def chart():
         out = {
             "metadata": {
                 "system": "sidereal",
-                "ayanamsha": current_app.config["AYANAMSHA"],
-                "houseSystem": payload.houseSystem,
+                "ayanamsha": effective_ayanamsha,
+                "houseSystem": effective_house_system,
                 "nodeType": payload.nodeType,
                 "datetimeInput": payload.datetime,
                 "tzApplied": payload.tz if payload.tz else format_utc_offset(payload.utcOffsetMinutes or 0),
@@ -130,7 +132,7 @@ def chart():
         }
 
         if payload.include.houseCusps:
-            if payload.houseSystem == "WHOLE_SIGN":
+            if effective_house_system == "WHOLE_SIGN":
                 # Build whole-sign cusps from asc_sign and round for frontend
                 out["houseCusps"] = [round(c, 2) for c in compute_whole_sign_cusps(asc_sign)]
             else:
