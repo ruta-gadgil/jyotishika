@@ -75,6 +75,7 @@ class DashaRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     depth: int = 3  # 1..3; default 3
+    ayanamsha: Optional[str] = None
     fromDate: Optional[str] = None  # ISO-8601 UTC (e.g., 1991-03-25T04:16:00Z)
     toDate: Optional[str] = None
     atDate: Optional[str] = None
@@ -87,6 +88,16 @@ class DashaRequest(BaseModel):
             datetime.fromisoformat(v)
         except ValueError:
             raise ValueError("datetime must be in ISO-8601 format")
+        return v
+
+    @field_validator("ayanamsha")
+    @classmethod
+    def _ay(cls, v):
+        if v is None:
+            return v
+        allowed = {"LAHIRI", "RAMAN", "KRISHNAMURTI", "VEDANJANAM"}
+        if v not in allowed:
+            raise ValueError(f"ayanamsha must be one of {allowed}")
         return v
 
     @field_validator("depth")

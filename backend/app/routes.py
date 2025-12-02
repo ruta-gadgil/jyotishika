@@ -204,8 +204,9 @@ def dasha():
         dt_utc = to_utc(payload.datetime, None, None, payload.latitude, payload.longitude)
         jd_ut = julian_day_utc(dt_utc)
         
-        # Initialize ephemeris
-        init_ephemeris(current_app.config["EPHE_PATH"], current_app.config["AYANAMSHA"])
+        # Initialize ephemeris with ayanamsha from request or default
+        effective_ayanamsha = payload.ayanamsha or current_app.config["AYANAMSHA"]
+        init_ephemeris(current_app.config["EPHE_PATH"], effective_ayanamsha)
         
         # Get Moon's sidereal longitude
         planets = compute_planets(jd_ut, "MEAN")  # Use MEAN nodes for dasha calculation
