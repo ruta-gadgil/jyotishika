@@ -84,6 +84,91 @@ def _subdivide(parent_start: datetime, parent_end: datetime, parent_lord: str, l
     return out
 
 
+def _build_children_with_full_parent(
+    *,
+    node: Dict[str, object],
+    parent_lord: str,
+    parent_start_full: datetime,
+    parent_end_full: datetime,
+    visible_start: datetime,
+    visible_end: datetime,
+    depth: int,
+    at_dt: Optional[datetime],
+) -> None:
+    """
+    Helper to build Antardashas and Pratyantardashas by first constructing the
+    canonical full sequence for the parent interval, then clipping it to the
+    [visible_start, visible_end] window. This is used for:
+
+    - First Mahadasha: visible_start is typically birth (or fromDate),
+      parent_start_full may be earlier (Mahadasha started before birth).
+    - Last Mahadasha: visible_end is typically window_end (e.g., birth+120y),
+      parent_end_full may be later (Mahadasha continues beyond the window).
+    """
+    if depth < 2:
+        return
+
+    # Build canonical Antardashas for the full parent interval.
+    level2_full = _subdivide(parent_start_full, parent_end_full, parent_lord, level=2)
+    level2: List[Dict[str, object]] = []
+
+    for c_full in level2_full:
+        s2_full = datetime.fromisoformat(c_full["start"].replace("Z", "+00:00"))
+        e2_full = datetime.fromisoformat(c_full["end"].replace("Z", "+00:00"))
+
+        if not _overlaps(s2_full, e2_full, visible_start, visible_end):
+            continue
+
+        s2_vis, e2_vis = _trim_to_window(s2_full, e2_full, visible_start, visible_end)
+
+        entry: Dict[str, object] = {
+            "lord": c_full["lord"],
+            "level": 2,
+            "start": s2_vis.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+            "end": e2_vis.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+            "durationDays": (e2_vis - s2_vis).total_seconds() / 86400.0,
+            "yearsShare": DASHA_YEARS[c_full["lord"]],  # type: ignore[index]
+        }
+
+        if at_dt is not None:
+            entry["active"] = bool(s2_vis <= at_dt < e2_vis)
+
+        # Build Pratyantardashas canonically within this Antardasha and then clip
+        # to the same visible parent window.
+        if depth >= 3:
+            lord2 = c_full["lord"]  # type: ignore[assignment]
+            level3_full = _subdivide(s2_full, e2_full, lord2, level=3)
+            level3: List[Dict[str, object]] = []
+
+            for cc_full in level3_full:
+                s3_full = datetime.fromisoformat(cc_full["start"].replace("Z", "+00:00"))
+                e3_full = datetime.fromisoformat(cc_full["end"].replace("Z", "+00:00"))
+
+                if not _overlaps(s3_full, e3_full, visible_start, visible_end):
+                    continue
+
+                s3_vis, e3_vis = _trim_to_window(s3_full, e3_full, visible_start, visible_end)
+                cc_entry: Dict[str, object] = {
+                    "lord": cc_full["lord"],
+                    "level": 3,
+                    "start": s3_vis.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "end": e3_vis.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "durationDays": (e3_vis - s3_vis).total_seconds() / 86400.0,
+                    "yearsShare": DASHA_YEARS[cc_full["lord"]],  # type: ignore[index]
+                }
+                if at_dt is not None:
+                    cc_entry["active"] = bool(s3_vis <= at_dt < e3_vis)
+                level3.append(cc_entry)
+
+            if level3:
+                entry["pratyantardasha"] = level3
+
+        level2.append(entry)
+
+    if level2:
+        node["antardasha"] = level2
+
+
 def calculate_vimshottari_timeline(
     birth_utc: datetime,
     moon_longitude_sidereal: float,
@@ -130,8 +215,10 @@ def calculate_vimshottari_timeline(
     start_lord = DASHA_LORDS[nak_idx0 % 9]
 
     # Remaining portion of the current Mahadasha at birth
-    balance_years = (1.0 - frac) * float(DASHA_YEARS[start_lord])
+    total_years_first = float(DASHA_YEARS[start_lord])
+    balance_years = (1.0 - frac) * total_years_first
     balance_days = balance_years * DAYS_PER_YEAR
+    consumed_years_before_birth = total_years_first - balance_years
 
     # Build Mahadasha sequence starting at birth (remaining of current), then full cycles
     timeline: List[Dict[str, object]] = []
@@ -178,7 +265,25 @@ def calculate_vimshottari_timeline(
         }
         if at_dt is not None:
             node["active"] = bool(s <= at_dt < e)
-        attach_children(node, s, e, current_lord)
+        # For the FIRST Mahadasha only, build Antardashas and Pratyantardashas
+        # from the canonical full Mahadasha span, then clip to the portion
+        # that remains from birth (and any requested window).
+        maha_start_full = _add_days(cursor, -consumed_years_before_birth * DAYS_PER_YEAR)
+        maha_end_full = _add_days(maha_start_full, total_years_first * DAYS_PER_YEAR)
+        visible_start = max(birth_utc, window_start)
+        visible_end = min(maha_end_full, window_end)
+
+        _build_children_with_full_parent(
+            node=node,
+            parent_lord=current_lord,
+            parent_start_full=maha_start_full,
+            parent_end_full=maha_end_full,
+            visible_start=visible_start,
+            visible_end=visible_end,
+            depth=depth,
+            at_dt=at_dt,
+        )
+
         timeline.append(node)
 
     cursor = first_end
@@ -204,7 +309,26 @@ def calculate_vimshottari_timeline(
             }
             if at_dt is not None:
                 node["active"] = bool(s <= at_dt < e)
-            attach_children(node, s, e, lord)
+
+            # For the *last* Mahadasha that is truncated at the end of the
+            # window, we want canonical Antardashas (and Pratyantardashas) for
+            # the full Mahadasha, and then clip them against the window,
+            # rather than rescaling them to the shortened duration.
+            is_last_truncated = end_dt > window_end and start_dt < window_end
+            if depth >= 2 and is_last_truncated:
+                _build_children_with_full_parent(
+                    node=node,
+                    parent_lord=lord,
+                    parent_start_full=start_dt,
+                    parent_end_full=end_dt,
+                    visible_start=window_start,
+                    visible_end=window_end,
+                    depth=depth,
+                    at_dt=at_dt,
+                )
+            else:
+                attach_children(node, s, e, lord)
+
             timeline.append(node)
         cursor = end_dt
         k += 1

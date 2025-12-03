@@ -4,6 +4,9 @@ run:
 test:
 	../venv/bin/pytest -q
 
+test-all:
+	../venv/bin/pytest tests/ -v
+
 docker-build:
 	docker build -t vedic-backend:latest .
 
