@@ -252,6 +252,3 @@ def test_dasha_all_ayanamsha_values(client):
         result = response.json
         assert 'timeline' in result
         assert len(result['timeline']) > 0
-
-
-
