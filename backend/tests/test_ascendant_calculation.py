@@ -363,7 +363,7 @@ class TestAscendantCalculation:
         ascendant_longitudes = []
         
         for house_system in house_systems:
-            asc_long, cusps = ascendant_and_houses(jd_ut, 18.5204, 73.8567, house_system)
+            asc_long, cusps, angles = ascendant_and_houses(jd_ut, 18.5204, 73.8567, house_system)
             ascendant_longitudes.append(asc_long)
         
         # All house systems should give the same ascendant longitude

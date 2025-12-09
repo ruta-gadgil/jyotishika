@@ -106,6 +106,43 @@ def house_from_sign(planet_sign: int, asc_sign: int) -> int:
     """Calculate house number for whole sign system"""
     return ((planet_sign - asc_sign + 12) % 12) + 1
 
+def house_from_cusps(planet_long: float, cusps: list) -> int:
+    """
+    Calculate house number for a planet based on house cusps (Bhava Sandhis for Bhav Chalit).
+    
+    For Bhav Chalit (Sripati): cusps are Bhava Sandhis (boundaries between houses).
+    A planet is in house N if it falls between Sandhi[N-1] and Sandhi[N].
+    
+    Args:
+        planet_long: Planet's longitude in degrees (0-360)
+        cusps: List of 12 house cusps/boundaries in degrees
+               For Bhav Chalit, these are Bhava Sandhis
+        
+    Returns:
+        House number (1-12)
+    """
+    # Normalize planet longitude
+    planet_long = norm360(planet_long)
+    
+    # Check each house to see if planet falls within it
+    # Planet is in house N if between cusp[N-1] (previous boundary) and cusp[N] (this boundary)
+    for i in range(12):
+        cusp_start = cusps[i - 1]  # Previous house's ending boundary
+        cusp_end = cusps[i]        # This house's ending boundary
+        
+        # Handle wraparound at 360°/0°
+        if cusp_start <= cusp_end:
+            # Normal case: boundaries don't wrap around
+            if cusp_start <= planet_long < cusp_end:
+                return i + 1
+        else:
+            # Wraparound case: boundaries cross 360°/0°
+            if planet_long >= cusp_start or planet_long < cusp_end:
+                return i + 1
+    
+    # Fallback: should not reach here, but return house 1 if no match found
+    return 1
+
 def format_utc_offset(offset_minutes: int) -> str:
     """Format UTC offset as string"""
     hours = abs(offset_minutes) // 60

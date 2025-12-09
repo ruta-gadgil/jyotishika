@@ -1,10 +1,11 @@
 from flask import Blueprint, request, jsonify, current_app
 from .schemas import ChartRequest, DashaRequest
-from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps
+from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps, compute_sripati_cusps
 from .astro.utils import (
     to_utc,
     sign_index,
     house_from_sign,
+    house_from_cusps,
     norm360,
     format_utc_offset,
     get_nakshatra_and_charan,
@@ -53,7 +54,7 @@ def chart():
         effective_house_system = payload.houseSystem or current_app.config["HOUSE_SYSTEM"]
         init_ephemeris(current_app.config["EPHE_PATH"], effective_ayanamsha)
 
-        asc_long, cusps = ascendant_and_houses(jd_ut, payload.latitude, payload.longitude, effective_house_system)
+        asc_long, cusps, angles = ascendant_and_houses(jd_ut, payload.latitude, payload.longitude, effective_house_system)
         asc_sign = sign_index(asc_long)
         
         # Calculate nakshatra, charan, and navamsha for ascendant
@@ -138,6 +139,38 @@ def chart():
             else:
                 # Round house cusps for frontend
                 out["houseCusps"] = [round(c, 2) for c in cusps] if cusps else None
+
+        # Always include Bhav Chalit (Sripati Padhati) data
+        # Sripati system divides the ecliptic into 4 quadrants using the four angles,
+        # then trisects each quadrant to create 12 houses
+        sripati_cusps = compute_sripati_cusps(
+            angles["asc"], 
+            angles["ic"], 
+            angles["dsc"], 
+            angles["mc"]
+        )
+        
+        # Calculate planet placements in Bhav Chalit houses
+        bhav_chalit_planets = []
+        # print(f"🌟 Bhav Chalit Planet Placements:")
+        current_app.logger.debug("Bhav Chalit Planet Placements:")
+        for p in planets:
+            planet_house = house_from_cusps(p["longitude"], sripati_cusps)
+            bhav_chalit_planets.append({
+                "planet": p["planet"],
+                "house": planet_house
+            })
+            # print(f"   {p['planet']:10s} at {p['longitude']:6.2f}° → House {planet_house}")
+            current_app.logger.debug(f"  {p['planet']:10s} at {p['longitude']:6.2f}° → House {planet_house}")
+        
+        out["bhavChalit"] = {
+            "system": "SRIPATI",
+            "ascendant": {
+                "longitude": round(asc_long, 2),
+                "house": 1  # Ascendant always defines house 1 in Bhav Chalit
+            },
+            "planets": bhav_chalit_planets
+        }
 
         # Log and print successful response
         print(f"🎉 Chart calculation successful - Response status: 200")
