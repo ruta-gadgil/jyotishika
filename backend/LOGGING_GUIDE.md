@@ -155,3 +155,7 @@ If you want to disable these logs in production:
 - 🎉 = Chart calculation successful
 - 💥 = Error occurred
 
+
+
+
+

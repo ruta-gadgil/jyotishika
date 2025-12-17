@@ -169,6 +169,7 @@ def chart():
                 "longitude": round(asc_long, 2),
                 "house": 1  # Ascendant always defines house 1 in Bhav Chalit
             },
+            "houseCusps": [round(c, 2) for c in sripati_cusps],  # Bhava Sandhis (house boundaries)
             "planets": bhav_chalit_planets
         }
 
