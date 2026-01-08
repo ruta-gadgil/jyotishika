@@ -89,6 +89,100 @@ def validate_state_token(state: str) -> bool:
     return False
 
 
+def get_current_user():
+    """
+    Protected route dependency - validates session and authorization.
+    
+    This function implements a multi-layer authorization check:
+    1. Validates session cookie exists and is valid
+    2. Queries users table by google_sub
+    3. Verifies users.is_active = True
+    4. Queries approved_users table by email
+    5. Verifies approved_users.is_active = True
+    
+    SECURITY NOTES:
+    - Checks BOTH tables' is_active flags (defense in depth)
+    - Returns 401 for all failure modes (doesn't leak which check failed)
+    - Should be called at the start of every protected route
+    - Use as decorator or call directly in route function
+    
+    Returns:
+        dict: Session data with user info if authorized
+        
+    Raises:
+        Returns 401 JSON response if not authorized (Flask will handle the return)
+        
+    Usage:
+        @auth_bp.route("/protected")
+        def protected_route():
+            session_data = get_current_user()
+            if isinstance(session_data, tuple):  # Error response
+                return session_data
+            # User is authorized, proceed with route logic
+            return jsonify({"data": "protected"})
+    """
+    from flask import g
+    
+    # Step 1: Get session ID from cookie
+    session_id = request.cookies.get("session_id")
+    
+    if not session_id:
+        current_app.logger.warning("Protected route access attempt without session cookie")
+        return jsonify({
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": "Authentication required"
+            }
+        }), 401
+    
+    # Step 2: Validate session exists in memory
+    session = sessions.get(session_id)
+    
+    if not session:
+        current_app.logger.warning(f"Protected route access attempt with invalid session: {session_id}")
+        return jsonify({
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": "Invalid or expired session"
+            }
+        }), 401
+    
+    # Step 3-6: Dual-layer authorization check (users + approved_users)
+    # Uses database utility function for consistent logic
+    from .db import is_user_authorized
+    
+    google_sub = session.get("user_id")  # This is actually google_sub
+    email = session.get("email")
+    
+    if not google_sub or not email:
+        current_app.logger.error(f"Session missing required fields: {session_id}")
+        return jsonify({
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": "Invalid session data"
+            }
+        }), 401
+    
+    # Check both users.is_active and approved_users.is_active
+    authorized, user = is_user_authorized(google_sub, email)
+    
+    if not authorized:
+        # Generic 401 response (don't leak which check failed)
+        current_app.logger.warning(f"Authorization check failed for user: {email}")
+        return jsonify({
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": "Access denied"
+            }
+        }), 401
+    
+    # Authorization successful - store user in Flask g context for easy access
+    g.current_user = user
+    g.session = session
+    
+    return session
+
+
 @auth_bp.route("/auth/google/login", methods=["GET"])
 def google_login():
     """
@@ -130,6 +224,35 @@ def google_login():
     
     current_app.logger.info(f"Redirecting to Google OAuth: {auth_url}")
     return redirect(auth_url)
+
+
+@auth_bp.route("/auth/denied", methods=["GET"])
+def auth_denied():
+    """
+    Authorization denied endpoint.
+    
+    Redirects here when a user successfully authenticates with Google
+    but their email is not in the approved_users allowlist or is not active.
+    
+    SECURITY NOTES:
+    - Returns 403 Forbidden (user is authenticated but not authorized)
+    - Generic message (doesn't reveal if email exists in system)
+    - No session cookie is set
+    - Logs attempt for security audit trail
+    
+    Returns:
+        Redirect response to frontend with error parameter
+    """
+    # Log the denial (email may be in query param from callback redirect)
+    email = request.args.get("email")
+    if email:
+        current_app.logger.warning(f"Authorization denied for email: {email}")
+    else:
+        current_app.logger.warning("Authorization denied for unknown email")
+    
+    # Redirect to frontend with error parameter
+    # Frontend can show a friendly "Contact admin to request access" message
+    return redirect(f"{FRONTEND_BASE_URL}?error=unauthorized&message=access_denied")
 
 
 @auth_bp.route("/auth/google/callback", methods=["GET"])
@@ -284,6 +407,56 @@ def google_callback():
             # Optionally log only user_id or hash the email for logging
             current_app.logger.info(f"Successfully verified ID token for user: {user_info.get('email')}")
             
+            # AUTHORIZATION CHECK: Verify email is in approved_users allowlist
+            # This check happens AFTER authentication but BEFORE session creation
+            # If user is not approved, redirect to /auth/denied (no session created)
+            user_email = user_info.get("email")
+            
+            if not user_email:
+                current_app.logger.error("ID token missing email claim")
+                return redirect(f"{FRONTEND_BASE_URL}?error=missing_email")
+            
+            # Log email for debugging
+            current_app.logger.info(f"OAuth callback: Checking authorization for email: {user_email}")
+            
+            # Check if database is configured
+            if not current_app.config.get("SQLALCHEMY_DATABASE_URI"):
+                current_app.logger.error("DATABASE_URL not configured - cannot check authorization")
+                return jsonify({
+                    "error": {
+                        "code": "CONFIGURATION_ERROR",
+                        "message": "Database not configured. DATABASE_URL is required."
+                    }
+                }), 500
+            
+            # Check if email is in approved_users table and is_active=True
+            # Uses database utility function for consistent authorization logic
+            from .db import is_email_approved, get_or_create_user
+            
+            if not is_email_approved(user_email):
+                # Email not approved or not active - deny access
+                # Redirect to /auth/denied (no session created)
+                current_app.logger.warning(f"Authorization denied for email: {user_email}")
+                return redirect(f"/auth/denied?email={user_email}")
+            
+            current_app.logger.info(f"Authorization approved for email: {user_email}")
+            
+            # User is approved - find or create user record in users table
+            try:
+                user = get_or_create_user(
+                    google_sub=user_info["user_id"],
+                    email=user_email,
+                    name=user_info.get("name", "")
+                )
+            except Exception as e:
+                current_app.logger.error(f"Failed to create/update user record: {str(e)}")
+                return jsonify({
+                    "error": {
+                        "code": "DATABASE_ERROR",
+                        "message": "Failed to create user account"
+                    }
+                }), 500
+            
         except requests.RequestException as e:
             current_app.logger.error(f"Failed to fetch Google's public keys: {str(e)}")
             return jsonify({
@@ -306,11 +479,12 @@ def google_callback():
         # Add session expiration check (e.g., expire after 7 days of inactivity)
         session_id = str(uuid.uuid4())
         sessions[session_id] = {
-            "user_id": user_info["user_id"],
+            "user_id": user_info["user_id"],  # Google sub (google_sub)
             "email": user_info["email"],
             "name": user_info.get("name", ""),
             "picture": user_info.get("picture", ""),
-            "created_at": datetime.utcnow()
+            "created_at": datetime.utcnow(),
+            "db_user_id": str(user.id)  # Database user ID for reference
         }
         
         current_app.logger.info(f"Created session {session_id} for user {user_info['email']}")
@@ -362,36 +536,51 @@ def get_user_info():
     """
     Get current user information from session cookie.
     
+    PROTECTED ROUTE: Requires valid session and active authorization.
+    
+    Authorization checks:
+    - Valid session cookie
+    - User exists in users table with is_active=True
+    - Email exists in approved_users table with is_active=True
+    
     Returns:
-        JSON response with user info if logged in, or {"logged_in": false} if not
+        JSON response with user info if authorized
+        401 if not authorized
+        200 with logged_in=false if no session (allows frontend to check auth state)
     """
-    # Get session ID from cookie
+    # Check if session cookie exists
     session_id = request.cookies.get("session_id")
     
     if not session_id:
+        # No session cookie - return logged_in=false (not an error)
         return jsonify({"logged_in": False}), 200
     
-    # Look up session
-    # PRODUCTION: Query Redis/database instead of in-memory dict
-    session = sessions.get(session_id)
+    # Validate session and authorization
+    session_data = get_current_user()
     
-    if not session:
-        # Session doesn't exist, clear the cookie
-        response = jsonify({"logged_in": False})
+    # If get_current_user returns a tuple, it's an error response (401)
+    if isinstance(session_data, tuple):
+        # Clear invalid session cookie
+        response = make_response(session_data)
         response.set_cookie("session_id", "", expires=0, path="/")
-        return response, 200
+        return response
     
-    # PRODUCTION: Check session expiration
-    # Example: if (datetime.utcnow() - session["created_at"]).days > 7: return logged_in=False
+    # User is authorized - return user info
+    # Include both session data and database user data
+    from flask import g
+    user = g.current_user
     
-    # Return user info
     return jsonify({
         "logged_in": True,
         "user": {
-            "user_id": session["user_id"],
-            "email": session["email"],
-            "name": session["name"],
-            "picture": session["picture"]
+            "id": str(user.id),
+            "user_id": session_data["user_id"],  # Google sub
+            "email": session_data["email"],
+            "name": session_data["name"],
+            "picture": session_data.get("picture", ""),
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
         }
     }), 200
 

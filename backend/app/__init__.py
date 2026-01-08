@@ -15,6 +15,7 @@ load_dotenv(project_root / ".env")  # Then try .env (won't override if already s
 from flask import Flask
 from .routes import bp
 from .auth import auth_bp
+from .db import init_db, check_db_connection
 
 def create_app():
     app = Flask(__name__)
@@ -51,6 +52,17 @@ def create_app():
         raise RuntimeError(f"Invalid HOUSE_SYSTEM value: {house_system}. Must be one of {allowed_house_systems}")
     app.config["HOUSE_SYSTEM"] = house_system
 
+    # Database configuration
+    # PRODUCTION: DATABASE_URL must be set via environment variable
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+        # Initialize database with connection pooling
+        init_db(app)
+        app.logger.info("Database initialized successfully")
+    else:
+        app.logger.warning("DATABASE_URL not set - database features disabled")
+
     # CORS (simple)
     # PRODUCTION: Restrict ALLOWED_ORIGINS to specific domains (e.g., "https://yourdomain.com")
     # Never use "*" in production - it allows any origin to make requests
@@ -64,5 +76,32 @@ def create_app():
 
     @app.get("/healthz")
     def healthz():
-        return {"ok": True}, 200
+        """
+        Health check endpoint.
+        
+        Checks:
+        - Basic app health (always returns ok: true)
+        - Database connection (if DATABASE_URL configured)
+        
+        Returns:
+            200: Service healthy
+            503: Service unhealthy (database connection failed)
+        """
+        health = {"ok": True}
+        
+        # Check database connection if configured
+        if app.config.get("SQLALCHEMY_DATABASE_URI"):
+            db_healthy, db_message = check_db_connection()
+            health["database"] = {
+                "healthy": db_healthy,
+                "message": db_message
+            }
+            
+            # Return 503 if database is unhealthy
+            if not db_healthy:
+                health["ok"] = False
+                return health, 503
+        
+        return health, 200
+    
     return app
