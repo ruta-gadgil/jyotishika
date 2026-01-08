@@ -58,18 +58,42 @@ def create_app():
     if database_url:
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
         # Initialize database with connection pooling
-        init_db(app)
-        app.logger.info("Database initialized successfully")
+        # Wrap in try-catch to prevent startup failures if database is unavailable
+        try:
+            init_db(app)
+            app.logger.info("Database initialized successfully")
+        except Exception as e:
+            app.logger.error(f"Failed to initialize database: {str(e)}")
+            app.logger.warning("Server will start without database - some features may be unavailable")
+            # Don't fail startup - allow server to run even if database is unavailable
     else:
         app.logger.warning("DATABASE_URL not set - database features disabled")
 
-    # CORS (simple)
+    # CORS configuration with credentials support for cookie-based authentication
     # PRODUCTION: Restrict ALLOWED_ORIGINS to specific domains (e.g., "https://yourdomain.com")
     # Never use "*" in production - it allows any origin to make requests
     # Example: ALLOWED_ORIGINS=https://app.yourdomain.com,https://www.yourdomain.com
+    # IMPORTANT: When using credentials, cannot use wildcard "*" - must specify explicit origins
     from flask_cors import CORS
-    origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
-    CORS(app, resources={r"/*": {"origins": origins}})
+    origins_str = os.environ.get("ALLOWED_ORIGINS", "*")
+    origins = [origin.strip() for origin in origins_str.split(",")]
+    
+    # If wildcard is used, convert to explicit origins for development
+    # In production, this should never happen (credentials require explicit origins)
+    if "*" in origins and len(origins) == 1:
+        # For development: use frontend URL from env or default
+        frontend_url = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
+        origins = [frontend_url]
+        app.logger.warning(f"ALLOWED_ORIGINS=* detected - converted to explicit origin: {frontend_url}")
+        app.logger.warning("For production, set ALLOWED_ORIGINS to explicit domain(s)")
+    
+    # Configure CORS with credentials support for HTTP-only cookies
+    CORS(app, resources={r"/*": {
+        "origins": origins,
+        "supports_credentials": True,
+        "allow_headers": ["Content-Type", "Authorization"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    }})
 
     app.register_blueprint(bp)
     app.register_blueprint(auth_bp)

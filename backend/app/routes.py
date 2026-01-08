@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from .schemas import ChartRequest, DashaRequest
+from .auth import get_current_user
 from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps, compute_sripati_cusps
 from .astro.utils import (
     to_utc,
@@ -19,6 +20,11 @@ bp = Blueprint("api", __name__)
 
 @bp.route("/chart", methods=["POST"])
 def chart():
+    # AUTHENTICATION REQUIRED - Validate session and authorization
+    session_data = get_current_user()
+    if isinstance(session_data, tuple):  # Error response (401)
+        return session_data
+    
     # Log and print request information
     print(f"\n🔵 API Request received - Method: {request.method}, URL: {request.url}")
     # print(f"📋 Request Headers: {dict(request.headers)}")
@@ -193,6 +199,11 @@ def chart():
 
 @bp.route("/dasha", methods=["POST"])
 def dasha():
+    # AUTHENTICATION REQUIRED - Validate session and authorization
+    session_data = get_current_user()
+    if isinstance(session_data, tuple):  # Error response (401)
+        return session_data
+    
     # Log and print request information
     print(f"\n🔵 Dasha API Request received - Method: {request.method}, URL: {request.url}")
     print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
