@@ -1,9 +1,37 @@
 import os
+from pathlib import Path
+# Load environment variables BEFORE importing modules that depend on them
+from dotenv import load_dotenv
+
+# Find the project root (parent of backend directory)
+backend_dir = Path(__file__).parent.parent
+project_root = backend_dir.parent
+
+# Try local.env first (for local development), then .env
+# Look in project root directory
+load_dotenv(project_root / "local.env")  # Try local.env first
+load_dotenv(project_root / ".env")  # Then try .env (won't override if already set)
+
 from flask import Flask
 from .routes import bp
+from .auth import auth_bp
 
 def create_app():
     app = Flask(__name__)
+    
+    # Set secret key for session management
+    # PRODUCTION: SECRET_KEY MUST be set via environment variable
+    # Use a strong, random secret (e.g., openssl rand -hex 32)
+    # Never commit SECRET_KEY to version control
+    secret_key = os.environ.get("SECRET_KEY")
+    if secret_key:
+        app.config["SECRET_KEY"] = secret_key
+    else:
+        # Generate a random secret key for development if not set
+        # PRODUCTION: This fallback should NOT be used in production
+        # Fail fast if SECRET_KEY is missing in production
+        app.config["SECRET_KEY"] = os.urandom(32).hex()
+    
     ephe = os.environ.get("EPHE_PATH")
     if not ephe or not os.path.isdir(ephe):
         raise RuntimeError("EPHE_PATH not set or not a directory")
@@ -24,11 +52,15 @@ def create_app():
     app.config["HOUSE_SYSTEM"] = house_system
 
     # CORS (simple)
+    # PRODUCTION: Restrict ALLOWED_ORIGINS to specific domains (e.g., "https://yourdomain.com")
+    # Never use "*" in production - it allows any origin to make requests
+    # Example: ALLOWED_ORIGINS=https://app.yourdomain.com,https://www.yourdomain.com
     from flask_cors import CORS
     origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
     CORS(app, resources={r"/*": {"origins": origins}})
 
     app.register_blueprint(bp)
+    app.register_blueprint(auth_bp)
 
     @app.get("/healthz")
     def healthz():

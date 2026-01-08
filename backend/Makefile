@@ -1,5 +1,5 @@
 run:
-	FLASK_ENV=development EPHE_PATH=./ephe ../venv/bin/python -m flask --app app run --port 8080
+	FLASK_ENV=development EPHE_PATH=./ephe ../venv/bin/python -m flask --app app run --host=0.0.0.0 --port=8000
 
 test:
 	../venv/bin/pytest -q
