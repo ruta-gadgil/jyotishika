@@ -634,21 +634,16 @@ def get_user_info():
     
     PROTECTED ROUTE: Requires valid session and active authorization.
     
-    Authorization checks:
-    - Valid session cookie
-    - User exists in users table with is_active=True
-    - Email exists in approved_users table with is_active=True
-    
     Returns:
         JSON response with user info if authorized
         401 if not authorized
-        200 with logged_in=false if no session (allows frontend to check auth state)
+        200 with logged_in=false if no session
     """
     # Check if session cookie exists
     session_id = request.cookies.get("session_id")
     
     if not session_id:
-        # No session cookie - return logged_in=false (not an error)
+        log_auth_event("user_info_requested", details={"result": "no_session"})
         return jsonify({"logged_in": False}), 200
     
     # Validate session and authorization
@@ -656,29 +651,64 @@ def get_user_info():
     
     # If get_current_user returns a tuple, it's an error response (401)
     if isinstance(session_data, tuple):
-        # Clear invalid session cookie
-        response = make_response(session_data)
+        # session_data is (response, status_code)
+        response_obj, status_code = session_data
+        # Log the denial (get_current_user already logged the specific reason)
+        log_auth_event("user_info_denied", session_id=session_id, details={"reason": "unauthorized"})
+        response = make_response(response_obj)
+        response.status_code = status_code
         response.set_cookie("session_id", "", expires=0, path="/")
         return response
     
     # User is authorized - return user info
-    # Include both session data and database user data
-    from flask import g
-    user = g.current_user
-    
-    return jsonify({
-        "logged_in": True,
-        "user": {
-            "id": str(user.id),
-            "user_id": session_data["user_id"],  # Google sub
-            "email": session_data["email"],
-            "name": session_data["name"],
-            "picture": session_data.get("picture", ""),
-            "is_active": user.is_active,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
+    try:
+        from flask import g
+        
+        # Verify g.current_user is set
+        if not hasattr(g, 'current_user') or g.current_user is None:
+            current_app.logger.error("g.current_user not set after successful authorization")
+            log_auth_event("user_info_error", session_id=session_id, details={"error": "missing_user_context"})
+            return jsonify({
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "User data not available"
+                }
+            }), 500
+        
+        user = g.current_user
+        user_id = session_data.get("user_id", "")  # Google sub
+        
+        # Safely extract session data with defaults
+        # email = session_data.get("email", "")
+        name = session_data.get("name", "")
+        picture = session_data.get("picture", "")
+        
+        # Log successful user info retrieval (using user_id, not email)
+        log_auth_event("user_info_retrieved", user_id=user_id, session_id=session_id, 
+                      details={"db_user_id": str(user.id), "has_name": bool(name), "has_picture": bool(picture)})
+        
+        response_data = {
+            "logged_in": True,
+            "username": name,
+            # "user": {
+                # "email": email,
+                # "name": name,
+                # "picture": picture,
+                # "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
+            # }
         }
-    }), 200
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in /me route: {str(e)}", exc_info=True)
+        log_auth_event("user_info_error", session_id=session_id, details={"error": "exception", "error_type": type(e).__name__})
+        return jsonify({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Failed to retrieve user information"
+            }
+        }), 500
 
 
 @auth_bp.route("/auth/logout", methods=["POST"])
