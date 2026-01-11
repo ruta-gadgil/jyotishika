@@ -31,3 +31,4 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_users_last_login ON users(last_login_at);
 
+

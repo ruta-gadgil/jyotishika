@@ -53,6 +53,87 @@ SCOPES = "openid email profile"
 REDIRECT_URI = f"{APP_BASE_URL}/auth/google/callback"
 
 
+def get_client_ip():
+    """
+    Get client IP address from request headers (supports proxies/load balancers).
+    
+    Checks X-Forwarded-For header (set by proxies/load balancers),
+    then X-Real-IP header (set by nginx/other proxies),
+    and falls back to request.remote_addr.
+    
+    Returns:
+        str: Client IP address
+    """
+    # Check X-Forwarded-For header (set by proxies/load balancers)
+    # Take the first IP if multiple are present (original client)
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+        # The first one is the original client IP
+        return forwarded_for.split(",")[0].strip()
+    
+    # Check X-Real-IP header (nginx)
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    
+    # Fallback to request.remote_addr
+    return request.remote_addr or "unknown"
+
+
+def log_auth_event(event_type, user_id=None, session_id=None, details=None):
+    """
+    Structured authentication event logger.
+    
+    Logs authentication events in a consistent format for easier parsing
+    and monitoring. Never logs sensitive data like passwords, tokens, or emails.
+    
+    Args:
+        event_type: Event name (e.g., 'auth_success', 'session_created')
+        user_id: Google sub (user identifier) - not email
+        session_id: Optional session ID (will be truncated to first 8 chars)
+        details: Optional dict with additional context (will be sanitized)
+    """
+    ip_address = get_client_ip()
+    
+    # Build log message components
+    parts = [f"[{event_type}]"]
+    
+    if user_id:
+        parts.append(f"user_id={user_id}")
+    
+    if session_id:
+        # Only log partial session ID (first 8 characters) for security
+        partial_session = session_id[:8] if len(session_id) >= 8 else session_id
+        parts.append(f"session={partial_session}")
+    
+    if details:
+        # Sanitize details - never log sensitive data
+        sanitized = {}
+        for key, value in details.items():
+            # Skip sensitive keys
+            if key.lower() in ["password", "token", "secret", "code", "email"]:
+                continue
+            # For email domain, extract only domain part
+            if key == "email_domain" and isinstance(value, str) and "@" in value:
+                sanitized[key] = value.split("@")[1] if "@" in value else "unknown"
+            else:
+                sanitized[key] = value
+        if sanitized:
+            detail_str = " ".join(f"{k}={v}" for k, v in sanitized.items())
+            parts.append(detail_str)
+    
+    parts.append(f"ip={ip_address}")
+    
+    log_message = " ".join(parts)
+    
+    # Use appropriate log level based on event type
+    if event_type.startswith("auth_denied") or event_type.startswith("session_invalid") or event_type.startswith("session_missing"):
+        current_app.logger.warning(log_message)
+    else:
+        current_app.logger.info(log_message)
+
+
 def generate_state_token():
     """Generate a random state token for CSRF protection."""
     return secrets.token_urlsafe(32)
@@ -127,7 +208,7 @@ def get_current_user():
     session_id = request.cookies.get("session_id")
     
     if not session_id:
-        current_app.logger.warning("Protected route access attempt without session cookie")
+        log_auth_event("session_missing", details={"reason": "no_session_cookie"})
         return jsonify({
             "error": {
                 "code": "UNAUTHORIZED",
@@ -139,7 +220,7 @@ def get_current_user():
     session = sessions.get(session_id)
     
     if not session:
-        current_app.logger.warning(f"Protected route access attempt with invalid session: {session_id}")
+        log_auth_event("session_invalid", session_id=session_id, details={"reason": "session_not_found"})
         return jsonify({
             "error": {
                 "code": "UNAUTHORIZED",
@@ -155,7 +236,7 @@ def get_current_user():
     email = session.get("email")
     
     if not google_sub or not email:
-        current_app.logger.error(f"Session missing required fields: {session_id}")
+        log_auth_event("session_invalid", session_id=session_id, details={"reason": "missing_required_fields"})
         return jsonify({
             "error": {
                 "code": "UNAUTHORIZED",
@@ -168,7 +249,7 @@ def get_current_user():
     
     if not authorized:
         # Generic 401 response (don't leak which check failed)
-        current_app.logger.warning(f"Authorization check failed for user: {email}")
+        log_auth_event("auth_denied_inactive", user_id=google_sub, session_id=session_id, details={"reason": "user_or_approval_inactive"})
         return jsonify({
             "error": {
                 "code": "UNAUTHORIZED",
@@ -179,6 +260,11 @@ def get_current_user():
     # Authorization successful - store user in Flask g context for easy access
     g.current_user = user
     g.session = session
+    
+    # Log successful session validation (at INFO level, less frequent)
+    # Note: This will log on every protected route access, which may be verbose
+    # Consider reducing to DEBUG level or adding rate limiting if needed
+    log_auth_event("session_validated", user_id=google_sub, session_id=session_id)
     
     return session
 
@@ -222,6 +308,9 @@ def google_login():
     # Construct the authorization URL
     auth_url = f"{GOOGLE_AUTH_URL}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
     
+    # Log OAuth flow initiation
+    log_auth_event("auth_initiated")
+    
     current_app.logger.info(f"Redirecting to Google OAuth: {auth_url}")
     return redirect(auth_url)
 
@@ -244,11 +333,13 @@ def auth_denied():
         Redirect response to frontend with error parameter
     """
     # Log the denial (email may be in query param from callback redirect)
+    # Only log email domain for privacy, not full email
     email = request.args.get("email")
     if email:
-        current_app.logger.warning(f"Authorization denied for email: {email}")
+        email_domain = email.split("@")[1] if "@" in email else "unknown"
+        log_auth_event("auth_denied_not_approved", details={"email_domain": email_domain, "reason": "not_in_allowlist"})
     else:
-        current_app.logger.warning("Authorization denied for unknown email")
+        log_auth_event("auth_denied_not_approved", details={"reason": "unknown_email"})
     
     # Redirect to frontend with error parameter
     # Frontend can show a friendly "Contact admin to request access" message
@@ -403,9 +494,9 @@ def google_callback():
                 "email_verified": decoded_token.get("email_verified", False)
             }
             
-            # PRODUCTION: Be careful logging user emails - consider GDPR/privacy requirements
-            # Optionally log only user_id or hash the email for logging
-            current_app.logger.info(f"Successfully verified ID token for user: {user_info.get('email')}")
+            # Log successful authentication (after ID token verification)
+            # Only log user_id (google_sub), not email for privacy
+            log_auth_event("auth_success", user_id=user_info.get("user_id"))
             
             # AUTHORIZATION CHECK: Verify email is in approved_users allowlist
             # This check happens AFTER authentication but BEFORE session creation
@@ -415,9 +506,6 @@ def google_callback():
             if not user_email:
                 current_app.logger.error("ID token missing email claim")
                 return redirect(f"{FRONTEND_BASE_URL}?error=missing_email")
-            
-            # Log email for debugging
-            current_app.logger.info(f"OAuth callback: Checking authorization for email: {user_email}")
             
             # Check if database is configured
             if not current_app.config.get("SQLALCHEMY_DATABASE_URI"):
@@ -436,10 +524,17 @@ def google_callback():
             if not is_email_approved(user_email):
                 # Email not approved or not active - deny access
                 # Redirect to /auth/denied (no session created)
-                current_app.logger.warning(f"Authorization denied for email: {user_email}")
+                # Log only email domain for privacy, not full email
+                email_domain = user_email.split("@")[1] if "@" in user_email else "unknown"
+                log_auth_event(
+                    "auth_denied_not_approved",
+                    user_id=user_info.get("user_id"),
+                    details={"email_domain": email_domain, "reason": "not_in_allowlist"}
+                )
                 return redirect(f"/auth/denied?email={user_email}")
             
-            current_app.logger.info(f"Authorization approved for email: {user_email}")
+            # Log successful authorization approval
+            log_auth_event("auth_approved", user_id=user_info.get("user_id"))
             
             # User is approved - find or create user record in users table
             try:
@@ -487,7 +582,8 @@ def google_callback():
             "db_user_id": str(user.id)  # Database user ID for reference
         }
         
-        current_app.logger.info(f"Created session {session_id} for user {user_info['email']}")
+        # Log session creation (only partial session ID for security)
+        log_auth_event("session_created", user_id=user_info["user_id"], session_id=session_id)
         
         # Create redirect response
         response = make_response(redirect(f"{FRONTEND_BASE_URL}?auth=success"))
@@ -598,9 +694,10 @@ def logout():
     
     if session_id and session_id in sessions:
         # Delete session
-        user_email = sessions[session_id].get("email", "unknown")
+        user_id = sessions[session_id].get("user_id")
         del sessions[session_id]
-        current_app.logger.info(f"Logged out user: {user_email}")
+        # Log logout event
+        log_auth_event("logout_success", user_id=user_id, session_id=session_id)
     
     # Create response
     response = jsonify({"message": "Logged out successfully"})

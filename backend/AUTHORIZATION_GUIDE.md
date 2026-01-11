@@ -374,3 +374,4 @@ For issues or questions:
 3. Verify database schema matches `backend/sql/schema.sql`
 4. Test with `curl` to isolate frontend vs backend issues
 
+
