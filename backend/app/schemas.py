@@ -16,6 +16,7 @@ class ChartRequest(BaseModel):
     ayanamsha: Optional[str] = None
     nodeType: str = "MEAN"
     include: IncludeFlags = IncludeFlags()
+    profileName: Optional[str] = None  # Optional name for the profile (e.g., "My Chart", "John's Chart")
 
     @field_validator("houseSystem")
     @classmethod

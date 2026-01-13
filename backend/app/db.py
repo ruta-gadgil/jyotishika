@@ -7,6 +7,7 @@ SECURITY NOTES:
 - Connection pooling configured with reasonable limits
 - Graceful error handling for connection failures
 - No credentials in code (DATABASE_URL from environment)
+- Profile operations verify user ownership
 """
 
 from flask import current_app
@@ -50,6 +51,45 @@ def init_db(app):
         app.logger.info(f"Database configured: {host_part}")
     else:
         app.logger.warning("DATABASE_URL not configured or in unexpected format")
+
+
+def set_rls_user_id(user_id):
+    """
+    Set the current user ID for Row Level Security (RLS) policies.
+    
+    This function sets a session variable that RLS policies use to determine
+    which user is making the request. Call this before executing queries
+    that should be filtered by RLS.
+    
+    Args:
+        user_id: UUID of the current user (from authenticated session)
+        
+    NOTES:
+    - Only needed if RLS policies are enabled in the database
+    - Should be called at the start of each request handler
+    - Session variable is scoped to the current transaction
+    - Safe to call even if RLS is not enabled (no-op)
+    
+    Example usage in route:
+        from flask import g
+        from .db import set_rls_user_id
+        
+        user = g.current_user
+        set_rls_user_id(user.id)
+        # Now all queries will be filtered by RLS policies
+    """
+    try:
+        # Set session variable for RLS policies
+        # This is used by the app.current_user_id() function in RLS policies
+        db.session.execute(
+            db.text("SET LOCAL app.current_user_id = :user_id"),
+            {"user_id": str(user_id)}
+        )
+        current_app.logger.debug(f"RLS user_id set: {user_id}")
+    except Exception as e:
+        # Don't fail if RLS is not configured or variable can't be set
+        # This allows the app to work with or without RLS enabled
+        current_app.logger.debug(f"Could not set RLS user_id (RLS may not be enabled): {str(e)}")
 
 
 def check_db_connection():
@@ -245,4 +285,356 @@ def is_user_authorized(google_sub, email):
         current_app.logger.error(f"Unexpected error in is_user_authorized: {str(e)}")
         # Fail closed: deny access on unexpected error
         return False, None
+
+
+# ============================================================================
+# Profile and Chart Management Functions
+# ============================================================================
+
+
+def get_or_create_profile(user_id, birth_details, chart_settings, name=None):
+    """
+    Get existing profile or create new one for the given user and birth details.
+    
+    Automatically deduplicates profiles based on unique constraint:
+    (user_id, datetime, latitude, longitude, house_system, ayanamsha, node_type)
+    
+    Args:
+        user_id: UUID of the user (from authenticated session)
+        birth_details: dict with keys: datetime, tz, utc_offset_minutes, latitude, longitude
+        chart_settings: dict with keys: house_system, ayanamsha, node_type
+        name: Optional profile name (e.g., "My Chart")
+        
+    Returns:
+        Profile: Profile model instance (existing or newly created)
+        
+    Raises:
+        SQLAlchemyError: On database errors
+        
+    SECURITY NOTES:
+    - user_id must come from authenticated session (never from request)
+    - Unique constraint prevents duplicate profiles
+    - Wrapped in transaction for atomicity
+    - Handles floating-point precision issues with lat/lng
+    """
+    from .models import Profile
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy import and_, func
+    
+    # Round lat/lng to match PostgreSQL REAL precision (4 decimal places is safe)
+    # This prevents precision mismatches between Python floats and database storage
+    lat_rounded = round(birth_details['latitude'], 4)
+    lng_rounded = round(birth_details['longitude'], 4)
+    
+    try:
+        # Try to find existing profile using range query for lat/lng to handle precision
+        # Use a small tolerance (0.0001 degrees ≈ 11 meters) for floating-point comparison
+        tolerance = 0.0001
+        profile = Profile.query.filter(
+            and_(
+                Profile.user_id == user_id,
+                Profile.datetime == birth_details['datetime'],
+                Profile.latitude.between(lat_rounded - tolerance, lat_rounded + tolerance),
+                Profile.longitude.between(lng_rounded - tolerance, lng_rounded + tolerance),
+                Profile.house_system == chart_settings['house_system'],
+                Profile.ayanamsha == chart_settings['ayanamsha'],
+                Profile.node_type == chart_settings['node_type']
+            )
+        ).first()
+        
+        if profile:
+            current_app.logger.info(f"Reusing existing profile: {profile.id}")
+            # Update name if provided and different
+            if name and profile.name != name:
+                profile.name = name
+                db.session.commit()
+            return profile
+        
+        # Create new profile with rounded coordinates
+        profile = Profile(
+            user_id=user_id,
+            name=name,
+            datetime=birth_details['datetime'],
+            tz=birth_details.get('tz'),
+            utc_offset_minutes=birth_details.get('utc_offset_minutes'),
+            latitude=lat_rounded,  # Use rounded value
+            longitude=lng_rounded,  # Use rounded value
+            house_system=chart_settings['house_system'],
+            ayanamsha=chart_settings['ayanamsha'],
+            node_type=chart_settings['node_type']
+        )
+        
+        db.session.add(profile)
+        
+        try:
+            db.session.commit()
+            current_app.logger.info(f"Created new profile: {profile.id} for user: {user_id}")
+            return profile
+        except IntegrityError as ie:
+            # Race condition or precision issue: profile exists but our query missed it
+            db.session.rollback()
+            current_app.logger.info(f"Profile already exists (caught by unique constraint), fetching existing profile")
+            
+            # Query again with broader range to catch any precision variations
+            profile = Profile.query.filter(
+                and_(
+                    Profile.user_id == user_id,
+                    Profile.datetime == birth_details['datetime'],
+                    Profile.latitude.between(lat_rounded - tolerance, lat_rounded + tolerance),
+                    Profile.longitude.between(lng_rounded - tolerance, lng_rounded + tolerance),
+                    Profile.house_system == chart_settings['house_system'],
+                    Profile.ayanamsha == chart_settings['ayanamsha'],
+                    Profile.node_type == chart_settings['node_type']
+                )
+            ).first()
+            
+            if profile:
+                current_app.logger.info(f"Retrieved existing profile after IntegrityError: {profile.id}")
+                # Update name if provided and different
+                if name and profile.name != name:
+                    profile.name = name
+                    db.session.commit()
+                return profile
+            else:
+                # Last resort: query by all other fields and pick the closest lat/lng match
+                # This handles extreme precision edge cases
+                current_app.logger.warning(f"Could not find profile with tolerance, trying broader search")
+                candidates = Profile.query.filter_by(
+                    user_id=user_id,
+                    datetime=birth_details['datetime'],
+                    house_system=chart_settings['house_system'],
+                    ayanamsha=chart_settings['ayanamsha'],
+                    node_type=chart_settings['node_type']
+                ).all()
+                
+                # Find closest match by lat/lng
+                for candidate in candidates:
+                    lat_diff = abs(candidate.latitude - lat_rounded)
+                    lng_diff = abs(candidate.longitude - lng_rounded)
+                    if lat_diff < 0.001 and lng_diff < 0.001:  # Within ~100 meters
+                        current_app.logger.info(f"Found matching profile via broader search: {candidate.id}")
+                        if name and candidate.name != name:
+                            candidate.name = name
+                            db.session.commit()
+                        return candidate
+                
+                # Still couldn't find it - this shouldn't happen
+                current_app.logger.error(f"IntegrityError occurred but could not find existing profile: {str(ie)}")
+                raise
+        
+    except IntegrityError as e:
+        # This should have been caught above, but just in case
+        db.session.rollback()
+        current_app.logger.error(f"IntegrityError in get_or_create_profile: {str(e)}")
+        raise
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.error(f"Database error in get_or_create_profile: {str(e)}")
+        raise
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Unexpected error in get_or_create_profile: {str(e)}")
+        raise
+
+
+def get_user_profile(profile_id, user_id):
+    """
+    Load profile by ID with ownership verification.
+    
+    Args:
+        profile_id: UUID of the profile to load
+        user_id: UUID of the authenticated user (from session)
+        
+    Returns:
+        tuple: (profile: Profile or None, error_response: tuple or None)
+        - On success: (profile, None)
+        - On not found: (None, (error_dict, 404))
+        - On unauthorized: (None, (error_dict, 403))
+        
+    SECURITY NOTES:
+    - Always verifies profile.user_id == user_id
+    - Returns 403 if user doesn't own profile
+    - Returns 404 if profile doesn't exist
+    - Generic error messages (don't leak existence)
+    """
+    from .models import Profile
+    from flask import jsonify
+    
+    try:
+        # Load profile by ID
+        profile = Profile.query.filter_by(id=profile_id, is_active=True).first()
+        
+        if not profile:
+            current_app.logger.warning(f"Profile not found: {profile_id}")
+            return None, (jsonify({
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Profile not found"
+                }
+            }), 404)
+        
+        # Verify ownership
+        if str(profile.user_id) != str(user_id):
+            current_app.logger.warning(
+                f"Unauthorized profile access attempt: profile={profile_id}, "
+                f"owner={profile.user_id}, requester={user_id}"
+            )
+            return None, (jsonify({
+                "error": {
+                    "code": "FORBIDDEN",
+                    "message": "Access denied"
+                }
+            }), 403)
+        
+        current_app.logger.info(f"Profile loaded: {profile_id} for user: {user_id}")
+        return profile, None
+        
+    except SQLAlchemyError as e:
+        current_app.logger.error(f"Database error in get_user_profile: {str(e)}")
+        return None, (jsonify({
+            "error": {
+                "code": "DATABASE_ERROR",
+                "message": "Failed to load profile"
+            }
+        }), 500)
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in get_user_profile: {str(e)}")
+        return None, (jsonify({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred"
+            }
+        }), 500)
+
+
+def get_cached_chart(profile_id):
+    """
+    Retrieve cached chart for the given profile.
+    
+    Args:
+        profile_id: UUID of the profile
+        
+    Returns:
+        Chart: Chart model instance or None if not cached
+        
+    NOTES:
+    - Returns None if chart doesn't exist (not an error)
+    - Caller should recalculate and save if None
+    """
+    from .models import Chart
+    
+    try:
+        chart = Chart.query.filter_by(profile_id=profile_id).first()
+        
+        if chart:
+            current_app.logger.info(f"Cache hit: chart found for profile {profile_id}")
+        else:
+            current_app.logger.info(f"Cache miss: no chart for profile {profile_id}")
+        
+        return chart
+        
+    except SQLAlchemyError as e:
+        current_app.logger.error(f"Database error in get_cached_chart: {str(e)}")
+        # Return None on error (caller will recalculate)
+        return None
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in get_cached_chart: {str(e)}")
+        return None
+
+
+def save_chart(profile_id, chart_data):
+    """
+    Save calculated chart results to database.
+    
+    Creates new chart or updates existing chart for the profile.
+    
+    Args:
+        profile_id: UUID of the profile
+        chart_data: dict with keys: ascendant, planets, houseCusps, bhavChalit, metadata
+        
+    Returns:
+        Chart: Chart model instance
+        
+    Raises:
+        SQLAlchemyError: On database errors
+        
+    NOTES:
+    - Uses upsert pattern (create or update)
+    - Wrapped in transaction for atomicity
+    """
+    from .models import Chart
+    
+    try:
+        # Check if chart already exists
+        chart = Chart.query.filter_by(profile_id=profile_id).first()
+        
+        if chart:
+            # Update existing chart
+            chart.ascendant_data = chart_data['ascendant']
+            chart.planets_data = chart_data['planets']
+            chart.house_cusps = chart_data.get('houseCusps')
+            chart.bhav_chalit_data = chart_data['bhavChalit']
+            chart.chart_metadata = chart_data['metadata']
+            current_app.logger.info(f"Updated cached chart for profile: {profile_id}")
+        else:
+            # Create new chart
+            chart = Chart(
+                profile_id=profile_id,
+                ascendant_data=chart_data['ascendant'],
+                planets_data=chart_data['planets'],
+                house_cusps=chart_data.get('houseCusps'),
+                bhav_chalit_data=chart_data['bhavChalit'],
+                chart_metadata=chart_data['metadata']
+            )
+            db.session.add(chart)
+            current_app.logger.info(f"Created new cached chart for profile: {profile_id}")
+        
+        db.session.commit()
+        return chart
+        
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.error(f"Database error in save_chart: {str(e)}")
+        raise
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Unexpected error in save_chart: {str(e)}")
+        raise
+
+
+def get_user_profiles(user_id, limit=100):
+    """
+    Get all active profiles for a user.
+    
+    Args:
+        user_id: UUID of the user
+        limit: Maximum number of profiles to return (default 100)
+        
+    Returns:
+        list: List of Profile model instances
+        
+    NOTES:
+    - Only returns active profiles (is_active=True)
+    - Ordered by updated_at descending (most recently updated first)
+    - Limited to prevent excessive data transfer
+    """
+    from .models import Profile
+    
+    try:
+        profiles = Profile.query.filter_by(
+            user_id=user_id,
+            is_active=True
+        ).order_by(
+            Profile.updated_at.desc()
+        ).limit(limit).all()
+        
+        current_app.logger.info(f"Retrieved {len(profiles)} profiles for user: {user_id}")
+        return profiles
+        
+    except SQLAlchemyError as e:
+        current_app.logger.error(f"Database error in get_user_profiles: {str(e)}")
+        return []
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in get_user_profiles: {str(e)}")
+        return []
 

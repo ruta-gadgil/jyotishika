@@ -25,6 +25,10 @@ def chart():
     if isinstance(session_data, tuple):  # Error response (401)
         return session_data
     
+    # Get authenticated user from Flask g context (set by get_current_user)
+    from flask import g
+    user = g.current_user
+    
     # Log and print request information
     print(f"\n🔵 API Request received - Method: {request.method}, URL: {request.url}")
     # print(f"📋 Request Headers: {dict(request.headers)}")
@@ -52,6 +56,56 @@ def chart():
         }), 400
 
     try:
+        # Step 1: Get or create profile for this user + birth details
+        from .db import get_or_create_profile, get_cached_chart, save_chart
+        
+        birth_details = {
+            'datetime': payload.datetime,
+            'tz': payload.tz,
+            'utc_offset_minutes': payload.utcOffsetMinutes,
+            'latitude': payload.latitude,
+            'longitude': payload.longitude
+        }
+        
+        chart_settings = {
+            'house_system': payload.houseSystem or current_app.config["HOUSE_SYSTEM"],
+            'ayanamsha': payload.ayanamsha or current_app.config["AYANAMSHA"],
+            'node_type': payload.nodeType
+        }
+        
+        profile = get_or_create_profile(
+            user_id=user.id,
+            birth_details=birth_details,
+            chart_settings=chart_settings,
+            name=payload.profileName
+        )
+        
+        # Step 2: Check if chart is already cached
+        cached_chart = get_cached_chart(profile.id)
+        
+        if cached_chart:
+            # Return cached chart data
+            print(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
+            current_app.logger.info(f"Cache hit - returning cached chart for profile: {profile.id}")
+            
+            response_data = {
+                "profile_id": str(profile.id),
+                "profile": profile.to_dict(),
+                "metadata": cached_chart.chart_metadata,
+                "ascendant": cached_chart.ascendant_data,
+                "planets": cached_chart.planets_data,
+                "bhavChalit": cached_chart.bhav_chalit_data
+            }
+            
+            if cached_chart.house_cusps:
+                response_data["houseCusps"] = cached_chart.house_cusps
+            
+            return jsonify(response_data), 200
+        
+        # Step 3: Calculate chart (cache miss)
+        print(f"💫 Cache miss - calculating chart for profile: {profile.id}")
+        current_app.logger.info(f"Cache miss - calculating chart for profile: {profile.id}")
+        
         dt_utc = to_utc(payload.datetime, payload.tz, payload.utcOffsetMinutes, payload.latitude, payload.longitude)
         jd_ut = julian_day_utc(dt_utc)
 
@@ -179,10 +233,30 @@ def chart():
             "planets": bhav_chalit_planets
         }
 
+        # Step 4: Save calculated chart to database (cache for future requests)
+        chart_data = {
+            "ascendant": out["ascendant"],
+            "planets": out["planets"],
+            "houseCusps": out.get("houseCusps"),
+            "bhavChalit": out["bhavChalit"],
+            "metadata": out["metadata"]
+        }
+        
+        save_chart(profile.id, chart_data)
+        print(f"💾 Chart saved to cache for profile: {profile.id}")
+        current_app.logger.info(f"Chart saved to cache for profile: {profile.id}")
+        
+        # Step 5: Return chart data with profile information
+        response_data = {
+            "profile_id": str(profile.id),
+            "profile": profile.to_dict(),
+            **out
+        }
+
         # Log and print successful response
         print(f"🎉 Chart calculation successful - Response status: 200")
         current_app.logger.info(f"Chart calculation successful - Response status: 200")
-        return jsonify(out), 200
+        return jsonify(response_data), 200
 
     except Exception as e:
         # Log and print the full error for debugging
@@ -192,6 +266,233 @@ def chart():
             "error": {
                 "code": "CALCULATION_ERROR",
                 "message": "Failed to calculate chart",
+                "details": {"error": str(e)}
+            }
+        }), 500
+
+
+@bp.route("/chart/<profile_id>", methods=["GET"])
+def get_chart_by_profile(profile_id):
+    """
+    Get chart by profile ID.
+    
+    Returns cached chart for the given profile if it exists.
+    If chart not cached, recalculates and saves it.
+    
+    SECURITY:
+    - Requires authentication
+    - Verifies profile ownership (user can only access their own profiles)
+    - Returns 403 if user doesn't own profile
+    - Returns 404 if profile doesn't exist
+    """
+    # AUTHENTICATION REQUIRED - Validate session and authorization
+    session_data = get_current_user()
+    if isinstance(session_data, tuple):  # Error response (401)
+        return session_data
+    
+    # Get authenticated user from Flask g context
+    from flask import g
+    user = g.current_user
+    
+    print(f"\n🔵 GET /chart/{profile_id} - User: {user.email}")
+    current_app.logger.info(f"GET /chart/{profile_id} - User: {user.email}")
+    
+    try:
+        # Step 1: Load profile with ownership verification
+        from .db import get_user_profile, get_cached_chart, save_chart
+        
+        profile, error_response = get_user_profile(profile_id, user.id)
+        
+        if error_response:
+            # Return error (403 or 404)
+            return error_response
+        
+        # Step 2: Check if chart is cached
+        cached_chart = get_cached_chart(profile.id)
+        
+        if cached_chart:
+            # Return cached chart
+            print(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
+            current_app.logger.info(f"Cache hit - returning cached chart for profile: {profile.id}")
+            
+            response_data = {
+                "profile_id": str(profile.id),
+                "profile": profile.to_dict(),
+                "metadata": cached_chart.chart_metadata,
+                "ascendant": cached_chart.ascendant_data,
+                "planets": cached_chart.planets_data,
+                "bhavChalit": cached_chart.bhav_chalit_data
+            }
+            
+            if cached_chart.house_cusps:
+                response_data["houseCusps"] = cached_chart.house_cusps
+            
+            return jsonify(response_data), 200
+        
+        # Step 3: Chart not cached - recalculate
+        print(f"💫 Cache miss - recalculating chart for profile: {profile.id}")
+        current_app.logger.info(f"Cache miss - recalculating chart for profile: {profile.id}")
+        
+        # Convert profile data to calculation parameters
+        dt_utc = to_utc(
+            profile.datetime,
+            profile.tz,
+            profile.utc_offset_minutes,
+            profile.latitude,
+            profile.longitude
+        )
+        jd_ut = julian_day_utc(dt_utc)
+        
+        # Initialize ephemeris
+        init_ephemeris(current_app.config["EPHE_PATH"], profile.ayanamsha)
+        
+        # Calculate ascendant and houses
+        asc_long, cusps, angles = ascendant_and_houses(
+            jd_ut,
+            profile.latitude,
+            profile.longitude,
+            profile.house_system
+        )
+        asc_sign = sign_index(asc_long)
+        
+        # Calculate nakshatra, charan, and navamsha for ascendant
+        asc_nak_name, asc_nak_index_1, asc_charan_1to4 = get_nakshatra_and_charan(asc_long)
+        asc_nav_info = get_navamsha_info(asc_long)
+        
+        # Calculate planets
+        planets = compute_planets(jd_ut, profile.node_type)
+        
+        # Decorate planets with additional data
+        result_planets = []
+        for p in planets:
+            rec = dict(p)
+            rec["longitude"] = round(p["longitude"], 2)
+            rec["speed"] = round(p["speed"], 4)
+            
+            nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
+            nav_info = get_navamsha_info(p["longitude"])
+            rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
+            rec["charan"] = charan_1to4
+            rec["navamsha"] = {
+                "sign": nav_info["sign"],
+                "signIndex": nav_info["signIndex"],
+                "ordinal": nav_info["ordinal"],
+                "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
+            }
+            
+            rec["signIndex"] = sign_index(p["longitude"])
+            if profile.house_system == "WHOLE_SIGN":
+                rec["house"] = house_from_sign(rec["signIndex"], asc_sign)
+            elif cusps:
+                planet_long = p["longitude"]
+                house_num = 1
+                for i, cusp in enumerate(cusps):
+                    if i < len(cusps) - 1:
+                        next_cusp = cusps[i + 1]
+                    else:
+                        next_cusp = cusps[0] + 360
+                    
+                    if cusp <= planet_long < next_cusp or (i == len(cusps) - 1 and planet_long >= cusp):
+                        house_num = i + 1
+                        break
+                rec["house"] = house_num
+            
+            result_planets.append(rec)
+        
+        # Calculate Bhav Chalit
+        sripati_cusps = compute_sripati_cusps(
+            angles["asc"],
+            angles["ic"],
+            angles["dsc"],
+            angles["mc"]
+        )
+        
+        bhav_chalit_planets = []
+        for p in planets:
+            planet_house = house_from_cusps(p["longitude"], sripati_cusps)
+            bhav_chalit_planets.append({
+                "planet": p["planet"],
+                "house": planet_house
+            })
+        
+        # Build response
+        ascendant_data = {
+            "longitude": round(asc_long, 2),
+            "signIndex": asc_sign,
+            "house": 1,
+            "nakshatra": {"name": asc_nak_name, "index": asc_nak_index_1},
+            "charan": asc_charan_1to4,
+            "navamsha": {
+                "sign": asc_nav_info["sign"],
+                "signIndex": asc_nav_info["signIndex"],
+                "ordinal": asc_nav_info["ordinal"],
+                "degreeInNavamsha": round(asc_nav_info["degreeInNavamsha"], 4),
+            }
+        }
+        
+        bhav_chalit_data = {
+            "system": "SRIPATI",
+            "ascendant": {
+                "longitude": round(asc_long, 2),
+                "house": 1
+            },
+            "houseCusps": [round(c, 2) for c in sripati_cusps],
+            "planets": bhav_chalit_planets
+        }
+        
+        house_cusps_data = None
+        if profile.house_system == "WHOLE_SIGN":
+            house_cusps_data = [round(c, 2) for c in compute_whole_sign_cusps(asc_sign)]
+        elif cusps:
+            house_cusps_data = [round(c, 2) for c in cusps]
+        
+        metadata = {
+            "system": "sidereal",
+            "ayanamsha": profile.ayanamsha,
+            "houseSystem": profile.house_system,
+            "nodeType": profile.node_type,
+            "datetimeInput": profile.datetime,
+            "tzApplied": profile.tz if profile.tz else format_utc_offset(profile.utc_offset_minutes or 0),
+            "datetimeUTC": dt_utc.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+        }
+        
+        # Save to cache
+        chart_data = {
+            "ascendant": ascendant_data,
+            "planets": result_planets,
+            "houseCusps": house_cusps_data,
+            "bhavChalit": bhav_chalit_data,
+            "metadata": metadata
+        }
+        
+        save_chart(profile.id, chart_data)
+        print(f"💾 Chart recalculated and saved to cache for profile: {profile.id}")
+        current_app.logger.info(f"Chart recalculated and saved to cache for profile: {profile.id}")
+        
+        # Return response
+        response_data = {
+            "profile_id": str(profile.id),
+            "profile": profile.to_dict(),
+            "metadata": metadata,
+            "ascendant": ascendant_data,
+            "planets": result_planets,
+            "bhavChalit": bhav_chalit_data
+        }
+        
+        if house_cusps_data:
+            response_data["houseCusps"] = house_cusps_data
+        
+        print(f"🎉 Chart retrieval successful - Response status: 200")
+        current_app.logger.info(f"Chart retrieval successful - Response status: 200")
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        print(f"💥 Chart retrieval error: {str(e)}")
+        current_app.logger.error(f"Chart retrieval error: {str(e)}")
+        return jsonify({
+            "error": {
+                "code": "CALCULATION_ERROR",
+                "message": "Failed to retrieve chart",
                 "details": {"error": str(e)}
             }
         }), 500
@@ -294,5 +595,56 @@ def dasha():
                 "code": "CALCULATION_ERROR",
                 "message": "Failed to calculate dasha",
                 "details": {"error": str(e)}
+            }
+        }), 500
+
+
+@bp.route("/profiles", methods=["GET"])
+def get_profiles():
+    """
+    Get all active profiles for the authenticated user.
+    
+    Returns an array of Profile objects sorted by updated_at descending.
+    
+    SECURITY:
+    - Requires authentication
+    - Only returns profiles owned by the authenticated user
+    - Only returns active profiles (is_active=True)
+    - Returns empty array if user has no profiles
+    """
+    # AUTHENTICATION REQUIRED - Validate session and authorization
+    session_data = get_current_user()
+    if isinstance(session_data, tuple):  # Error response (401)
+        return session_data
+    
+    # Get authenticated user from Flask g context (set by get_current_user)
+    from flask import g
+    user = g.current_user
+    
+    print(f"\n🔵 GET /profiles - User: {user.email}")
+    current_app.logger.info(f"GET /profiles - User: {user.email}")
+    
+    try:
+        # Get all active profiles for the authenticated user
+        from .db import get_user_profiles
+        
+        profiles = get_user_profiles(user.id)
+        
+        # Convert profiles to dictionaries
+        profiles_data = [profile.to_dict() for profile in profiles]
+        
+        print(f"✅ Retrieved {len(profiles_data)} profiles for user: {user.email}")
+        current_app.logger.info(f"Retrieved {len(profiles_data)} profiles for user: {user.email}")
+        
+        # Return JSON array directly (not wrapped in object)
+        return jsonify(profiles_data), 200
+        
+    except Exception as e:
+        # Log and print the full error for debugging
+        print(f"💥 Profile retrieval error: {str(e)}")
+        current_app.logger.error(f"Profile retrieval error: {str(e)}")
+        return jsonify({
+            "error": {
+                "message": "Failed to retrieve profiles"
             }
         }), 500

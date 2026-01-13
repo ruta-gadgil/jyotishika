@@ -1,14 +1,17 @@
--- Email Allowlist Authorization Schema
+-- Jyotishika Database Schema
 -- 
--- This schema implements a two-table authorization system:
+-- This schema implements:
 -- 1. approved_users: Manually maintained allowlist of approved emails
 -- 2. users: Actual user records created after successful OAuth + approval
+-- 3. profiles: Birth details and chart calculation settings (user-owned)
+-- 4. charts: Cached astrological chart calculation results (linked to profiles)
 --
 -- SECURITY DECISIONS:
 -- - Email as primary key in approved_users (ensures uniqueness, fast lookup)
--- - UUID primary key for users (prevents enumeration attacks)
+-- - UUID primary keys (prevents enumeration attacks)
 -- - google_sub indexed and unique (prevents duplicate Google account reuse)
--- - Both tables have is_active flags (dual-layer deactivation control)
+-- - Foreign keys with CASCADE delete (data cleanup)
+-- - Unique constraints prevent duplicate profiles
 -- - Timestamps use UTC for consistency across timezones
 --
 -- DEPLOYMENT:
@@ -95,6 +98,223 @@ COMMENT ON COLUMN users.google_sub IS 'Google user ID from OAuth sub claim. Prim
 COMMENT ON COLUMN users.email IS 'User email from Google. Stored for convenience but google_sub is authoritative.';
 COMMENT ON COLUMN users.last_login_at IS 'Updated on every successful login via OAuth callback.';
 COMMENT ON COLUMN users.is_active IS 'Account active flag. Both this AND approved_users.is_active must be true.';
+
+-- Table 3: profiles
+-- Birth details and chart calculation settings
+-- Each profile belongs to a user and has one associated chart (1:1)
+CREATE TABLE IF NOT EXISTS profiles (
+    -- UUID primary key
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- Foreign key to users table
+    -- ON DELETE CASCADE: profiles deleted when user deleted
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    
+    -- Optional profile name (e.g., "My Chart", "John's Chart")
+    name TEXT,
+    
+    -- Birth details (PII - sensitive data)
+    datetime TEXT NOT NULL,  -- ISO-8601 format (e.g., "1991-03-25T09:46:00")
+    tz TEXT,  -- Timezone name (e.g., "Asia/Kolkata")
+    utc_offset_minutes INTEGER,  -- UTC offset in minutes
+    latitude REAL NOT NULL,  -- -90 to 90
+    longitude REAL NOT NULL,  -- -180 to 180
+    
+    -- Chart calculation settings
+    house_system TEXT NOT NULL DEFAULT 'WHOLE_SIGN',  -- WHOLE_SIGN, EQUAL, PLACIDUS
+    ayanamsha TEXT NOT NULL DEFAULT 'LAHIRI',  -- LAHIRI, RAMAN, KRISHNAMURTI, VEDANJANAM
+    node_type TEXT NOT NULL DEFAULT 'MEAN',  -- MEAN or TRUE
+    
+    -- Metadata
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    
+    -- Unique constraint: prevent duplicate profiles for same user + birth details + settings
+    CONSTRAINT uq_user_profile UNIQUE (user_id, datetime, latitude, longitude, house_system, ayanamsha, node_type)
+);
+
+-- Indexes for profiles
+CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_profiles_user_active ON profiles(user_id, is_active);
+
+-- Table 4: charts
+-- Cached astrological chart calculation results
+-- Each chart belongs to exactly one profile (1:1 relationship)
+CREATE TABLE IF NOT EXISTS charts (
+    -- UUID primary key
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- Foreign key to profiles table (1:1 relationship)
+    -- UNIQUE constraint enforces one chart per profile
+    -- ON DELETE CASCADE: charts deleted when profile deleted
+    profile_id UUID NOT NULL UNIQUE REFERENCES profiles(id) ON DELETE CASCADE,
+    
+    -- Calculated chart data (JSONB for flexibility)
+    ascendant_data JSONB NOT NULL,  -- Ascendant position, nakshatra, charan, navamsha
+    planets_data JSONB NOT NULL,  -- Array of planet objects with positions
+    house_cusps JSONB,  -- House cusp positions (optional)
+    bhav_chalit_data JSONB NOT NULL,  -- Bhav Chalit (Sripati) house system data
+    chart_metadata JSONB NOT NULL,  -- Calculation metadata (system, ayanamsha, etc.)
+    
+    -- Metadata
+    calculated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for charts
+CREATE INDEX IF NOT EXISTS idx_charts_profile_id ON charts(profile_id);
+
+-- Comments for documentation
+COMMENT ON TABLE profiles IS 'Birth profiles for astrological chart calculations. Each profile belongs to a user.';
+COMMENT ON TABLE charts IS 'Cached chart calculation results. Each chart belongs to one profile (1:1).';
+
+COMMENT ON COLUMN profiles.user_id IS 'Foreign key to users table. Profiles deleted when user deleted (CASCADE).';
+COMMENT ON COLUMN profiles.datetime IS 'Birth datetime in ISO-8601 format (e.g., 1991-03-25T09:46:00).';
+COMMENT ON COLUMN profiles.latitude IS 'Birth location latitude (-90 to 90).';
+COMMENT ON COLUMN profiles.longitude IS 'Birth location longitude (-180 to 180).';
+COMMENT ON COLUMN profiles.house_system IS 'House system for chart calculation (WHOLE_SIGN, EQUAL, PLACIDUS).';
+COMMENT ON COLUMN profiles.ayanamsha IS 'Ayanamsha for sidereal calculations (LAHIRI, RAMAN, KRISHNAMURTI, VEDANJANAM).';
+COMMENT ON COLUMN profiles.node_type IS 'Node type for Rahu/Ketu (MEAN or TRUE).';
+
+COMMENT ON COLUMN charts.profile_id IS 'Foreign key to profiles table. One chart per profile (UNIQUE constraint).';
+COMMENT ON COLUMN charts.ascendant_data IS 'Cached ascendant calculation results (JSONB).';
+COMMENT ON COLUMN charts.planets_data IS 'Cached planet positions and details (JSONB array).';
+COMMENT ON COLUMN charts.bhav_chalit_data IS 'Cached Bhav Chalit house system data (JSONB).';
+COMMENT ON COLUMN charts.chart_metadata IS 'Calculation metadata including system, ayanamsha, timestamps (JSONB).';
+
+-- ============================================================================
+-- Row Level Security (RLS) Policies
+-- ============================================================================
+-- 
+-- RLS provides database-level security enforcement for sensitive data.
+-- Even if application code is bypassed (SQL injection, direct DB access),
+-- users can only access their own profiles and charts.
+--
+-- IMPORTANT: This application uses direct PostgreSQL connections (not Supabase Auth).
+-- RLS policies use a session variable approach: app.current_user_id
+--
+-- To use RLS, set the session variable before queries:
+--   SET LOCAL app.current_user_id = 'user-uuid-here';
+--   (This should be done in your application's database connection setup)
+--
+-- For now, RLS is enabled but policies are permissive (allow all).
+-- Uncomment and configure the policies below when ready to enforce RLS.
+-- ============================================================================
+
+-- Enable RLS on profiles table
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Enable RLS on charts table  
+ALTER TABLE charts ENABLE ROW LEVEL SECURITY;
+
+-- Create a function to get current user ID from session variable
+-- This function reads the app.current_user_id session variable
+CREATE OR REPLACE FUNCTION app.current_user_id()
+RETURNS UUID AS $$
+BEGIN
+    -- Get user ID from session variable (set by application)
+    -- Returns NULL if not set (which will deny access in policies)
+    RETURN current_setting('app.current_user_id', true)::UUID;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- If variable not set or invalid, return NULL (deny access)
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- RLS Policy: Users can SELECT their own profiles
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY profiles_select_own ON profiles
+--     FOR SELECT
+--     USING (user_id = app.current_user_id() AND is_active = true);
+
+-- RLS Policy: Users can INSERT their own profiles
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY profiles_insert_own ON profiles
+--     FOR INSERT
+--     WITH CHECK (user_id = app.current_user_id());
+
+-- RLS Policy: Users can UPDATE their own profiles
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY profiles_update_own ON profiles
+--     FOR UPDATE
+--     USING (user_id = app.current_user_id())
+--     WITH CHECK (user_id = app.current_user_id());
+
+-- RLS Policy: Users can DELETE their own profiles (soft delete via is_active)
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY profiles_delete_own ON profiles
+--     FOR DELETE
+--     USING (user_id = app.current_user_id());
+
+-- RLS Policy: Users can SELECT charts for their own profiles
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY charts_select_own ON charts
+--     FOR SELECT
+--     USING (
+--         profile_id IN (
+--             SELECT id FROM profiles 
+--             WHERE user_id = app.current_user_id() AND is_active = true
+--         )
+--     );
+
+-- RLS Policy: Users can INSERT charts for their own profiles
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY charts_insert_own ON charts
+--     FOR INSERT
+--     WITH CHECK (
+--         profile_id IN (
+--             SELECT id FROM profiles 
+--             WHERE user_id = app.current_user_id() AND is_active = true
+--         )
+--     );
+
+-- RLS Policy: Users can UPDATE charts for their own profiles
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY charts_update_own ON charts
+--     FOR UPDATE
+--     USING (
+--         profile_id IN (
+--             SELECT id FROM profiles 
+--             WHERE user_id = app.current_user_id() AND is_active = true
+--         )
+--     )
+--     WITH CHECK (
+--         profile_id IN (
+--             SELECT id FROM profiles 
+--             WHERE user_id = app.current_user_id() AND is_active = true
+--         )
+--     );
+
+-- RLS Policy: Users can DELETE charts for their own profiles
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY charts_delete_own ON charts
+--     FOR DELETE
+--     USING (
+--         profile_id IN (
+--             SELECT id FROM profiles 
+--             WHERE user_id = app.current_user_id() AND is_active = true
+--         )
+--     );
+
+-- NOTE: For now, RLS is enabled but policies are commented out.
+-- This means RLS is active but permissive (allows all operations).
+-- 
+-- To activate RLS enforcement:
+-- 1. Uncomment the policies above
+-- 2. Modify your application's database connection to set the session variable:
+--    SET LOCAL app.current_user_id = 'user-uuid-here';
+-- 3. Test thoroughly to ensure all queries work correctly
+--
+-- Example application code (in db.py init_db or before queries):
+--   db.session.execute(db.text("SET LOCAL app.current_user_id = :user_id"), 
+--                      {"user_id": str(current_user.id)})
+--
+-- SECURITY BENEFITS:
+-- - Defense in depth: Even if application code is bypassed, DB enforces access
+-- - Protection against SQL injection (if attacker can't set session variable)
+-- - Protection against direct database access (requires valid user_id)
+-- - Automatic enforcement at database level
 
 -- Example data for development/testing
 -- Uncomment and modify these INSERT statements to add your test users
