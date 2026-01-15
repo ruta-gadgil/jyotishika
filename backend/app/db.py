@@ -638,3 +638,237 @@ def get_user_profiles(user_id, limit=100):
         current_app.logger.error(f"Unexpected error in get_user_profiles: {str(e)}")
         return []
 
+
+def update_profile(profile_id, user_id, updates):
+    """
+    Update profile with provided fields.
+    
+    Args:
+        profile_id: UUID of the profile to update
+        user_id: UUID of the authenticated user (from session)
+        updates: dict with fields to update (camelCase keys from frontend)
+                 Keys: name, datetime, tz, utcOffsetMinutes, latitude, longitude,
+                       houseSystem, ayanamsha, nodeType
+                 
+    Returns:
+        tuple: (profile: Profile or None, error_response: tuple or None)
+        - On success: (profile, None)
+        - On not found: (None, (error_dict, 404))
+        - On unauthorized: (None, (error_dict, 403))
+        - On duplicate: (None, (error_dict, 409))
+        
+    SECURITY NOTES:
+    - Verifies profile ownership before updating
+    - Rounds coordinates to 4 decimal places for precision
+    - Checks unique constraint before committing
+    - Invalidates chart cache if chart-affecting fields change
+    - Wrapped in transaction for atomicity
+    
+    Chart-affecting fields (will invalidate cache):
+    - datetime, latitude, longitude, house_system, ayanamsha, node_type
+    """
+    from .models import Profile, Chart
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy import and_
+    from flask import jsonify
+    
+    # Map camelCase frontend keys to snake_case database keys
+    field_mapping = {
+        'name': 'name',
+        'datetime': 'datetime',
+        'tz': 'tz',
+        'utcOffsetMinutes': 'utc_offset_minutes',
+        'latitude': 'latitude',
+        'longitude': 'longitude',
+        'houseSystem': 'house_system',
+        'ayanamsha': 'ayanamsha',
+        'nodeType': 'node_type'
+    }
+    
+    # Chart-affecting fields (if any of these change, invalidate cache)
+    chart_affecting_fields = {'datetime', 'latitude', 'longitude', 'house_system', 'ayanamsha', 'node_type'}
+    
+    try:
+        # Step 1: Verify ownership
+        profile, error_response = get_user_profile(profile_id, user_id)
+        if error_response:
+            return None, error_response
+        
+        # Step 2: Check if there are any updates
+        if not updates:
+            current_app.logger.info(f"No updates provided for profile: {profile_id}")
+            return profile, None
+        
+        # Step 3: Build update dict with snake_case keys and handle special cases
+        db_updates = {}
+        chart_invalidation_needed = False
+        
+        for frontend_key, value in updates.items():
+            if value is None:  # Skip None values (frontend can send null to clear optional fields)
+                # Only allow None for optional fields
+                if frontend_key in ['name', 'tz', 'utcOffsetMinutes']:
+                    db_key = field_mapping[frontend_key]
+                    db_updates[db_key] = None
+                continue
+            
+            db_key = field_mapping.get(frontend_key)
+            if db_key is None:
+                current_app.logger.warning(f"Unknown update field: {frontend_key}")
+                continue
+            
+            # Round coordinates to 4 decimal places
+            if db_key in ['latitude', 'longitude']:
+                value = round(float(value), 4)
+            
+            db_updates[db_key] = value
+            
+            # Track if chart cache needs invalidation
+            if db_key in chart_affecting_fields:
+                chart_invalidation_needed = True
+        
+        # Step 4: Check unique constraint before updating
+        # Build the "new" profile values (current + updates)
+        new_datetime = db_updates.get('datetime', profile.datetime)
+        new_latitude = db_updates.get('latitude', profile.latitude)
+        new_longitude = db_updates.get('longitude', profile.longitude)
+        new_house_system = db_updates.get('house_system', profile.house_system)
+        new_ayanamsha = db_updates.get('ayanamsha', profile.ayanamsha)
+        new_node_type = db_updates.get('node_type', profile.node_type)
+        
+        # Round lat/lng for comparison
+        lat_rounded = round(new_latitude, 4)
+        lng_rounded = round(new_longitude, 4)
+        
+        # Check if another profile exists with same unique constraint values
+        # Use tolerance-based comparison for lat/lng (0.0001 degrees ≈ 11 meters)
+        tolerance = 0.0001
+        conflicting_profile = Profile.query.filter(
+            and_(
+                Profile.user_id == user_id,
+                Profile.id != profile_id,  # Exclude current profile
+                Profile.datetime == new_datetime,
+                Profile.latitude.between(lat_rounded - tolerance, lat_rounded + tolerance),
+                Profile.longitude.between(lng_rounded - tolerance, lng_rounded + tolerance),
+                Profile.house_system == new_house_system,
+                Profile.ayanamsha == new_ayanamsha,
+                Profile.node_type == new_node_type
+            )
+        ).first()
+        
+        if conflicting_profile:
+            current_app.logger.warning(
+                f"Unique constraint violation: profile update would create duplicate "
+                f"profile_id={profile_id}, conflicting_id={conflicting_profile.id}"
+            )
+            return None, (jsonify({
+                "error": {
+                    "code": "DUPLICATE_PROFILE",
+                    "message": "A profile with these details already exists"
+                }
+            }), 409)
+        
+        # Step 5: Apply updates to profile object
+        for db_key, value in db_updates.items():
+            setattr(profile, db_key, value)
+        
+        # Step 6: Invalidate chart cache if chart-affecting fields changed
+        if chart_invalidation_needed:
+            chart = Chart.query.filter_by(profile_id=profile_id).first()
+            if chart:
+                db.session.delete(chart)
+                current_app.logger.info(f"Deleted cached chart for profile: {profile_id} (chart-affecting fields updated)")
+        
+        # Step 7: Commit transaction
+        try:
+            db.session.commit()
+            current_app.logger.info(f"Profile updated: {profile_id} for user: {user_id}")
+            return profile, None
+        except IntegrityError as ie:
+            # Race condition: another request created duplicate profile
+            db.session.rollback()
+            current_app.logger.warning(f"IntegrityError on profile update (race condition): {str(ie)}")
+            return None, (jsonify({
+                "error": {
+                    "code": "DUPLICATE_PROFILE",
+                    "message": "A profile with these details already exists"
+                }
+            }), 409)
+        
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.error(f"Database error in update_profile: {str(e)}")
+        return None, (jsonify({
+            "error": {
+                "code": "DATABASE_ERROR",
+                "message": "Failed to update profile"
+            }
+        }), 500)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Unexpected error in update_profile: {str(e)}")
+        return None, (jsonify({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred"
+            }
+        }), 500)
+
+
+def delete_profile(profile_id, user_id):
+    """
+    Delete profile and associated chart.
+    
+    Args:
+        profile_id: UUID of the profile to delete
+        user_id: UUID of the authenticated user (from session)
+        
+    Returns:
+        tuple: (success: bool, error_response: tuple or None)
+        - On success: (True, None)
+        - On error: (False, (error_dict, status_code))
+        
+    SECURITY NOTES:
+    - Verifies profile ownership before deletion
+    - Charts automatically deleted via CASCADE constraint
+    - Wrapped in transaction for atomicity
+    - Generic error messages (don't leak existence)
+    """
+    from .models import Profile
+    from flask import jsonify
+    
+    try:
+        # Step 1: Verify ownership
+        profile, error_response = get_user_profile(profile_id, user_id)
+        if error_response:
+            # Return (False, error_response) to indicate failure
+            return False, error_response
+        
+        # Step 2: Delete profile (hard delete)
+        # Charts will be automatically deleted via CASCADE constraint
+        db.session.delete(profile)
+        
+        # Step 3: Commit transaction
+        db.session.commit()
+        
+        current_app.logger.info(f"Profile deleted: {profile_id} for user: {user_id}")
+        return True, None
+        
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.error(f"Database error in delete_profile: {str(e)}")
+        return False, (jsonify({
+            "error": {
+                "code": "DATABASE_ERROR",
+                "message": "Failed to delete profile"
+            }
+        }), 500)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Unexpected error in delete_profile: {str(e)}")
+        return False, (jsonify({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred"
+            }
+        }), 500)
+

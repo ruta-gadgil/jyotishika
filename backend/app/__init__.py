@@ -92,7 +92,7 @@ def create_app():
         "origins": origins,
         "supports_credentials": True,
         "allow_headers": ["Content-Type", "Authorization"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     }})
 
     app.register_blueprint(bp)

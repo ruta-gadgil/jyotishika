@@ -107,3 +107,77 @@ class DashaRequest(BaseModel):
         if v < 1 or v > 3:
             raise ValueError("depth must be between 1 and 3")
         return v
+
+
+# ---------------- Profile Update API Schema ----------------
+
+class ProfileUpdateRequest(BaseModel):
+    """
+    Schema for updating profile details.
+    
+    All fields are optional to support partial updates.
+    Uses camelCase field names to match frontend conventions.
+    """
+    name: Optional[str] = None
+    datetime: Optional[str] = None
+    tz: Optional[str] = None
+    utcOffsetMinutes: Optional[int] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    houseSystem: Optional[str] = None
+    ayanamsha: Optional[str] = None
+    nodeType: Optional[str] = None
+
+    @field_validator("houseSystem")
+    @classmethod
+    def _hs(cls, v):
+        if v is None:
+            return v
+        allowed = {"WHOLE_SIGN", "EQUAL", "PLACIDUS"}
+        if v not in allowed: 
+            raise ValueError(f"houseSystem must be one of {allowed}")
+        return v
+
+    @field_validator("ayanamsha")
+    @classmethod
+    def _ay(cls, v):
+        if v is None:
+            return v
+        allowed = {"LAHIRI", "RAMAN", "KRISHNAMURTI", "VEDANJANAM"}
+        if v not in allowed:
+            raise ValueError(f"ayanamsha must be one of {allowed}")
+        return v
+
+    @field_validator("nodeType")
+    @classmethod
+    def _nt(cls, v):
+        if v is None:
+            return v
+        allowed = {"MEAN", "TRUE"}
+        if v not in allowed: 
+            raise ValueError(f"nodeType must be one of {allowed}")
+        return v
+
+    @field_validator("datetime")
+    @classmethod
+    def _dt(cls, v):
+        if v is None:
+            return v
+        try:
+            from datetime import datetime
+            datetime.fromisoformat(v)
+        except ValueError:
+            raise ValueError("datetime must be in ISO-8601 format")
+        return v
+
+    @field_validator("tz")
+    @classmethod
+    def _tz(cls, v):
+        if v is None:
+            return v
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(v)
+        except Exception:
+            raise ValueError(f"Invalid timezone: {v}")
+        return v

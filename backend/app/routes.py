@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app
-from .schemas import ChartRequest, DashaRequest
+from .schemas import ChartRequest, DashaRequest, ProfileUpdateRequest
 from .auth import get_current_user
 from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps, compute_sripati_cusps
 from .astro.utils import (
@@ -646,5 +646,140 @@ def get_profiles():
         return jsonify({
             "error": {
                 "message": "Failed to retrieve profiles"
+            }
+        }), 500
+
+
+@bp.route("/profiles/<profile_id>", methods=["PATCH"])
+def update_profile_endpoint(profile_id):
+    """
+    Update profile details for the authenticated user.
+    
+    Supports partial updates - only provided fields will be updated.
+    
+    SECURITY:
+    - Requires authentication
+    - Verifies profile ownership (user can only update their own profiles)
+    - Returns 403 if user doesn't own profile
+    - Returns 404 if profile doesn't exist
+    - Returns 409 if update would create duplicate profile
+    """
+    # AUTHENTICATION REQUIRED - Validate session and authorization
+    session_data = get_current_user()
+    if isinstance(session_data, tuple):  # Error response (401)
+        return session_data
+    
+    # Get authenticated user from Flask g context (set by get_current_user)
+    from flask import g
+    user = g.current_user
+    
+    print(f"\n🔵 PATCH /profiles/{profile_id} - User: {user.email}")
+    current_app.logger.info(f"PATCH /profiles/{profile_id} - User: {user.email}")
+    
+    # Log and print request information
+    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    
+    try:
+        # Step 1: Parse and validate request body
+        payload = ProfileUpdateRequest.model_validate_json(request.data)
+        print(f"✅ Validated Payload: {payload.model_dump(exclude_none=True)}")
+        current_app.logger.info(f"Validated Payload: {payload.model_dump(exclude_none=True)}")
+    except Exception as e:
+        # Log and print validation error
+        print(f"❌ Request validation error: {str(e)}")
+        current_app.logger.error(f"Request validation error: {str(e)}")
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": str(e),
+                "details": {"field": "request", "value": "invalid"}
+            }
+        }), 400
+    
+    try:
+        # Step 2: Update profile
+        from .db import update_profile
+        
+        # Convert Pydantic model to dict, excluding None values
+        updates = payload.model_dump(exclude_none=True)
+        
+        # Call update_profile function
+        profile, error_response = update_profile(profile_id, user.id, updates)
+        
+        if error_response:
+            # Return error (403, 404, 409, or 500)
+            return error_response
+        
+        # Step 3: Return updated profile
+        print(f"✅ Profile updated successfully: {profile_id}")
+        current_app.logger.info(f"Profile updated successfully: {profile_id}")
+        
+        return jsonify(profile.to_dict()), 200
+        
+    except Exception as e:
+        # Log and print the full error for debugging
+        print(f"💥 Profile update error: {str(e)}")
+        current_app.logger.error(f"Profile update error: {str(e)}")
+        return jsonify({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Failed to update profile",
+                "details": {"error": str(e)}
+            }
+        }), 500
+
+
+@bp.route("/profiles/<profile_id>", methods=["DELETE"])
+def delete_profile_endpoint(profile_id):
+    """
+    Delete a profile for the authenticated user.
+    
+    SECURITY:
+    - Requires authentication
+    - Verifies profile ownership (user can only delete their own profiles)
+    - Returns 403 if user doesn't own profile
+    - Returns 404 if profile doesn't exist
+    """
+    # AUTHENTICATION REQUIRED - Validate session and authorization
+    session_data = get_current_user()
+    if isinstance(session_data, tuple):  # Error response (401)
+        return session_data
+    
+    # Get authenticated user from Flask g context (set by get_current_user)
+    from flask import g
+    user = g.current_user
+    
+    print(f"\n🔵 DELETE /profiles/{profile_id} - User: {user.email}")
+    current_app.logger.info(f"DELETE /profiles/{profile_id} - User: {user.email}")
+    
+    try:
+        # Step 1: Delete profile
+        from .db import delete_profile
+        
+        # Call delete_profile function
+        success, error_response = delete_profile(profile_id, user.id)
+        
+        if error_response:
+            # Return error (403, 404, or 500)
+            return error_response
+        
+        # Step 2: Return success response
+        print(f"✅ Profile deleted successfully: {profile_id}")
+        current_app.logger.info(f"Profile deleted successfully: {profile_id}")
+        
+        return jsonify({
+            "message": "Profile deleted successfully"
+        }), 200
+        
+    except Exception as e:
+        # Log and print the full error for debugging
+        print(f"💥 Profile deletion error: {str(e)}")
+        current_app.logger.error(f"Profile deletion error: {str(e)}")
+        return jsonify({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Failed to delete profile",
+                "details": {"error": str(e)}
             }
         }), 500
