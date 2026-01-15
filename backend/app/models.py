@@ -325,3 +325,83 @@ class Chart(db.Model):
             "calculated_at": self.calculated_at.isoformat() if self.calculated_at else None
         }
 
+
+class AnalysisNote(db.Model):
+    """
+    User-created analysis notes for charts.
+    
+    Stores user's personal analysis and observations about a chart.
+    Each note belongs to exactly one chart (many-to-one relationship).
+    
+    SECURITY NOTES:
+    - Contains user-generated content (analysis notes)
+    - chart_id foreign key enforces ownership via chart → profile → user
+    - ON DELETE CASCADE removes notes when chart deleted
+    - Only accessible to chart owner (verified in routes)
+    
+    FEATURES:
+    - Title field for note organization (max 200 chars)
+    - Note content field for detailed analysis (max 5000 chars)
+    - Automatic timestamps for created_at and updated_at
+    """
+    __tablename__ = "analysis_notes"
+    
+    # Primary key: UUID v4
+    id = db.Column(
+        db.UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=db.text("uuid_generate_v4()")
+    )
+    
+    # Foreign key to charts table
+    # ON DELETE CASCADE: notes deleted when chart deleted
+    chart_id = db.Column(
+        db.UUID(as_uuid=True),
+        db.ForeignKey('charts.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    
+    # Note title (max 200 characters)
+    title = db.Column(db.Text, nullable=False)
+    
+    # Note content (max 5000 characters)
+    note = db.Column(db.Text, nullable=False)
+    
+    # Metadata
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=dt.utcnow,
+        server_default=func.current_timestamp()
+    )
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=dt.utcnow,
+        onupdate=dt.utcnow,
+        server_default=func.current_timestamp()
+    )
+    
+    # Relationships
+    chart = db.relationship('Chart', backref=db.backref('notes', lazy=True))
+    
+    def __repr__(self):
+        return f"<AnalysisNote {self.id} chart={self.chart_id} title='{self.title[:30]}...'>"
+    
+    def to_dict(self):
+        """
+        Convert analysis note to dictionary for API responses.
+        
+        Returns:
+            dict: Analysis note data
+        """
+        return {
+            "id": str(self.id),
+            "title": self.title,
+            "note": self.note,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+

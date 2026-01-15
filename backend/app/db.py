@@ -872,3 +872,216 @@ def delete_profile(profile_id, user_id):
             }
         }), 500)
 
+
+# ============================================================================
+# Analysis Notes Functions
+# ============================================================================
+
+def get_notes_for_chart(chart_id):
+    """
+    Get all analysis notes for a specific chart.
+    
+    Args:
+        chart_id: UUID of the chart
+        
+    Returns:
+        list: List of AnalysisNote objects, ordered by updated_at DESC
+        
+    Raises:
+        SQLAlchemyError: If database query fails
+    """
+    from .models import AnalysisNote
+    
+    try:
+        notes = AnalysisNote.query.filter_by(chart_id=chart_id)\
+            .order_by(AnalysisNote.updated_at.desc())\
+            .all()
+        return notes
+    except SQLAlchemyError as e:
+        current_app.logger.error(f"Database error in get_notes_for_chart: {str(e)}")
+        raise
+
+
+def create_note(chart_id, title, note):
+    """
+    Create a new analysis note for a chart.
+    
+    Args:
+        chart_id: UUID of the chart
+        title: Note title (max 200 chars)
+        note: Note content (max 5000 chars)
+        
+    Returns:
+        AnalysisNote: The created note object
+        
+    Raises:
+        SQLAlchemyError: If database operation fails
+    """
+    from .models import AnalysisNote
+    
+    try:
+        # Create new note
+        new_note = AnalysisNote(
+            chart_id=chart_id,
+            title=title,
+            note=note
+        )
+        
+        db.session.add(new_note)
+        db.session.commit()
+        
+        current_app.logger.info(f"Note created: {new_note.id} for chart: {chart_id}")
+        return new_note
+        
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.error(f"Database error in create_note: {str(e)}")
+        raise
+
+
+def get_note_by_id(note_id):
+    """
+    Get a single analysis note by ID.
+    
+    Args:
+        note_id: UUID of the note
+        
+    Returns:
+        AnalysisNote or None: The note object if found, None otherwise
+        
+    Raises:
+        SQLAlchemyError: If database query fails
+    """
+    from .models import AnalysisNote
+    
+    try:
+        note = AnalysisNote.query.filter_by(id=note_id).first()
+        return note
+    except SQLAlchemyError as e:
+        current_app.logger.error(f"Database error in get_note_by_id: {str(e)}")
+        raise
+
+
+def update_note(note_id, title=None, note=None):
+    """
+    Update an existing analysis note.
+    
+    Args:
+        note_id: UUID of the note
+        title: Optional new title (max 200 chars)
+        note: Optional new note content (max 5000 chars)
+        
+    Returns:
+        AnalysisNote or None: The updated note object if found, None otherwise
+        
+    Raises:
+        SQLAlchemyError: If database operation fails
+    """
+    from .models import AnalysisNote
+    from datetime import datetime as dt
+    
+    try:
+        existing_note = AnalysisNote.query.filter_by(id=note_id).first()
+        
+        if not existing_note:
+            return None
+        
+        # Update fields if provided
+        if title is not None:
+            existing_note.title = title
+        if note is not None:
+            existing_note.note = note
+        
+        # Update timestamp
+        existing_note.updated_at = dt.utcnow()
+        
+        db.session.commit()
+        
+        current_app.logger.info(f"Note updated: {note_id}")
+        return existing_note
+        
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.error(f"Database error in update_note: {str(e)}")
+        raise
+
+
+def delete_note(note_id):
+    """
+    Delete an analysis note.
+    
+    Args:
+        note_id: UUID of the note
+        
+    Returns:
+        bool: True if deleted, False if note not found
+        
+    Raises:
+        SQLAlchemyError: If database operation fails
+    """
+    from .models import AnalysisNote
+    
+    try:
+        note = AnalysisNote.query.filter_by(id=note_id).first()
+        
+        if not note:
+            return False
+        
+        db.session.delete(note)
+        db.session.commit()
+        
+        current_app.logger.info(f"Note deleted: {note_id}")
+        return True
+        
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.error(f"Database error in delete_note: {str(e)}")
+        raise
+
+
+def get_notes_summary_for_charts(chart_ids):
+    """
+    Get notes summary (count and titles) for multiple charts.
+    
+    Used to enhance the profiles list with notes metadata.
+    
+    Args:
+        chart_ids: List of chart UUIDs
+        
+    Returns:
+        dict: Dictionary mapping chart_id to {count, titles}
+              Example: {
+                  'chart-uuid-1': {'count': 3, 'titles': ['Title 1', 'Title 2', 'Title 3']},
+                  'chart-uuid-2': {'count': 1, 'titles': ['Title A']}
+              }
+        
+    Raises:
+        SQLAlchemyError: If database query fails
+    """
+    from .models import AnalysisNote
+    from sqlalchemy import func
+    
+    try:
+        if not chart_ids:
+            return {}
+        
+        # Query to get all notes for the specified charts
+        notes = AnalysisNote.query.filter(AnalysisNote.chart_id.in_(chart_ids))\
+            .order_by(AnalysisNote.chart_id, AnalysisNote.updated_at.desc())\
+            .all()
+        
+        # Group notes by chart_id
+        summary = {}
+        for note in notes:
+            chart_id_str = str(note.chart_id)
+            if chart_id_str not in summary:
+                summary[chart_id_str] = {'count': 0, 'titles': []}
+            summary[chart_id_str]['count'] += 1
+            summary[chart_id_str]['titles'].append(note.title)
+        
+        return summary
+        
+    except SQLAlchemyError as e:
+        current_app.logger.error(f"Database error in get_notes_summary_for_charts: {str(e)}")
+        raise
+

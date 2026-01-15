@@ -164,9 +164,35 @@ CREATE TABLE IF NOT EXISTS charts (
 -- Index for charts
 CREATE INDEX IF NOT EXISTS idx_charts_profile_id ON charts(profile_id);
 
+-- Table 5: analysis_notes
+-- User-created analysis notes for charts
+-- Each note belongs to exactly one chart (many-to-one relationship)
+CREATE TABLE IF NOT EXISTS analysis_notes (
+    -- UUID primary key
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- Foreign key to charts table (many notes can belong to one chart)
+    -- ON DELETE CASCADE: notes deleted when chart deleted
+    chart_id UUID NOT NULL REFERENCES charts(id) ON DELETE CASCADE,
+    
+    -- Note title (max 200 characters)
+    title TEXT NOT NULL CHECK (char_length(title) <= 200),
+    
+    -- Note content (max 5000 characters)
+    note TEXT NOT NULL CHECK (char_length(note) <= 5000),
+    
+    -- Metadata
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for analysis_notes (fast retrieval of all notes for a chart)
+CREATE INDEX IF NOT EXISTS idx_analysis_notes_chart_id ON analysis_notes(chart_id);
+
 -- Comments for documentation
 COMMENT ON TABLE profiles IS 'Birth profiles for astrological chart calculations. Each profile belongs to a user.';
 COMMENT ON TABLE charts IS 'Cached chart calculation results. Each chart belongs to one profile (1:1).';
+COMMENT ON TABLE analysis_notes IS 'User-created analysis notes for charts. Multiple notes can belong to one chart.';
 
 COMMENT ON COLUMN profiles.user_id IS 'Foreign key to users table. Profiles deleted when user deleted (CASCADE).';
 COMMENT ON COLUMN profiles.datetime IS 'Birth datetime in ISO-8601 format (e.g., 1991-03-25T09:46:00).';
@@ -181,6 +207,10 @@ COMMENT ON COLUMN charts.ascendant_data IS 'Cached ascendant calculation results
 COMMENT ON COLUMN charts.planets_data IS 'Cached planet positions and details (JSONB array).';
 COMMENT ON COLUMN charts.bhav_chalit_data IS 'Cached Bhav Chalit house system data (JSONB).';
 COMMENT ON COLUMN charts.chart_metadata IS 'Calculation metadata including system, ayanamsha, timestamps (JSONB).';
+
+COMMENT ON COLUMN analysis_notes.chart_id IS 'Foreign key to charts table. Notes deleted when chart deleted (CASCADE).';
+COMMENT ON COLUMN analysis_notes.title IS 'Note title (max 200 characters).';
+COMMENT ON COLUMN analysis_notes.note IS 'Note content (max 5000 characters).';
 
 -- ============================================================================
 -- Row Level Security (RLS) Policies
@@ -206,6 +236,12 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 -- Enable RLS on charts table  
 ALTER TABLE charts ENABLE ROW LEVEL SECURITY;
+
+-- Enable RLS on analysis_notes table
+ALTER TABLE analysis_notes ENABLE ROW LEVEL SECURITY;
+
+-- Create schema for application functions (if it doesn't exist)
+CREATE SCHEMA IF NOT EXISTS app;
 
 -- Create a function to get current user ID from session variable
 -- This function reads the app.current_user_id session variable
@@ -294,6 +330,61 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 --         profile_id IN (
 --             SELECT id FROM profiles 
 --             WHERE user_id = app.current_user_id() AND is_active = true
+--         )
+--     );
+
+-- RLS Policy: Users can SELECT analysis_notes for their own charts
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY analysis_notes_select_own ON analysis_notes
+--     FOR SELECT
+--     USING (
+--         chart_id IN (
+--             SELECT c.id FROM charts c
+--             INNER JOIN profiles p ON c.profile_id = p.id
+--             WHERE p.user_id = app.current_user_id() AND p.is_active = true
+--         )
+--     );
+
+-- RLS Policy: Users can INSERT analysis_notes for their own charts
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY analysis_notes_insert_own ON analysis_notes
+--     FOR INSERT
+--     WITH CHECK (
+--         chart_id IN (
+--             SELECT c.id FROM charts c
+--             INNER JOIN profiles p ON c.profile_id = p.id
+--             WHERE p.user_id = app.current_user_id() AND p.is_active = true
+--         )
+--     );
+
+-- RLS Policy: Users can UPDATE analysis_notes for their own charts
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY analysis_notes_update_own ON analysis_notes
+--     FOR UPDATE
+--     USING (
+--         chart_id IN (
+--             SELECT c.id FROM charts c
+--             INNER JOIN profiles p ON c.profile_id = p.id
+--             WHERE p.user_id = app.current_user_id() AND p.is_active = true
+--         )
+--     )
+--     WITH CHECK (
+--         chart_id IN (
+--             SELECT c.id FROM charts c
+--             INNER JOIN profiles p ON c.profile_id = p.id
+--             WHERE p.user_id = app.current_user_id() AND p.is_active = true
+--         )
+--     );
+
+-- RLS Policy: Users can DELETE analysis_notes for their own charts
+-- Uncomment when ready to enforce RLS:
+-- CREATE POLICY analysis_notes_delete_own ON analysis_notes
+--     FOR DELETE
+--     USING (
+--         chart_id IN (
+--             SELECT c.id FROM charts c
+--             INNER JOIN profiles p ON c.profile_id = p.id
+--             WHERE p.user_id = app.current_user_id() AND p.is_active = true
 --         )
 --     );
 

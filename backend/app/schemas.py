@@ -181,3 +181,45 @@ class ProfileUpdateRequest(BaseModel):
         except Exception:
             raise ValueError(f"Invalid timezone: {v}")
         return v
+
+
+# ---------------- Analysis Notes API Schemas ----------------
+
+class AnalysisNoteCreate(BaseModel):
+    """
+    Schema for creating a new analysis note.
+    
+    Validates title and note fields with length constraints.
+    """
+    title: str = Field(min_length=1, max_length=200)
+    note: str = Field(min_length=0, max_length=5000)
+    
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v):
+        # Strip whitespace and validate
+        v = v.strip()
+        if not v:
+            raise ValueError("title cannot be empty or only whitespace")
+        return v
+
+
+class AnalysisNoteUpdate(BaseModel):
+    """
+    Schema for updating an existing analysis note.
+    
+    All fields are optional to support partial updates.
+    """
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    note: Optional[str] = Field(default=None, min_length=0, max_length=5000)
+    
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v):
+        if v is None:
+            return v
+        # Strip whitespace and validate
+        v = v.strip()
+        if not v:
+            raise ValueError("title cannot be empty or only whitespace")
+        return v
