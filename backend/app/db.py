@@ -563,8 +563,10 @@ def save_chart(profile_id, chart_data):
     NOTES:
     - Uses upsert pattern (create or update)
     - Wrapped in transaction for atomicity
+    - Handles race conditions when multiple requests try to create chart simultaneously
     """
     from .models import Chart
+    from sqlalchemy.exc import IntegrityError
     
     try:
         # Check if chart already exists
@@ -591,9 +593,37 @@ def save_chart(profile_id, chart_data):
             db.session.add(chart)
             current_app.logger.info(f"Created new cached chart for profile: {profile_id}")
         
-        db.session.commit()
-        return chart
+        try:
+            db.session.commit()
+            return chart
+        except IntegrityError as ie:
+            # Race condition: another request created the chart between our check and insert
+            db.session.rollback()
+            current_app.logger.info(f"Chart already exists (caught by unique constraint), fetching existing chart for profile: {profile_id}")
+            
+            # Re-query to get the chart that was just created by the concurrent request
+            chart = Chart.query.filter_by(profile_id=profile_id).first()
+            
+            if chart:
+                # Update the existing chart with our calculated data
+                chart.ascendant_data = chart_data['ascendant']
+                chart.planets_data = chart_data['planets']
+                chart.house_cusps = chart_data.get('houseCusps')
+                chart.bhav_chalit_data = chart_data['bhavChalit']
+                chart.chart_metadata = chart_data['metadata']
+                db.session.commit()
+                current_app.logger.info(f"Retrieved and updated existing chart after IntegrityError: {chart.id}")
+                return chart
+            else:
+                # This shouldn't happen - chart should exist if we got IntegrityError
+                current_app.logger.error(f"IntegrityError occurred but could not find existing chart for profile: {profile_id}")
+                raise
         
+    except IntegrityError as e:
+        # This should have been caught above, but just in case
+        db.session.rollback()
+        current_app.logger.error(f"IntegrityError in save_chart: {str(e)}")
+        raise
     except SQLAlchemyError as e:
         db.session.rollback()
         current_app.logger.error(f"Database error in save_chart: {str(e)}")
