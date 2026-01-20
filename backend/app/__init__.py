@@ -12,13 +12,34 @@ project_root = backend_dir.parent
 load_dotenv(project_root / "local.env")  # Try local.env first
 load_dotenv(project_root / ".env")  # Then try .env (won't override if already set)
 
-from flask import Flask
+from flask import Flask, jsonify
 from .routes import bp
 from .auth import auth_bp
 from .db import init_db, check_db_connection
+from .logging_config import configure_logging
+import sys
 
 def create_app():
     app = Flask(__name__)
+    
+    # Configure logging first (before any log statements)
+    configure_logging(app)
+    
+    # Log AGPL compliance information on startup
+    try:
+        import swisseph as swe
+        swe_version = swe.version if hasattr(swe, 'version') else "unknown"
+        app.logger.info("=" * 60)
+        app.logger.info("AGPL-Licensed Software Notice")
+        app.logger.info("=" * 60)
+        app.logger.info(f"Swiss Ephemeris version: {swe_version}")
+        app.logger.info("Swiss Ephemeris is licensed under AGPL v3")
+        app.logger.info("Copyright (C) 1997-2021 Astrodienst AG, Switzerland")
+        app.logger.info("Source code: https://github.com/astrorigin/pyswisseph")
+        app.logger.info("This application source: [YOUR_GITHUB_REPO_URL]")
+        app.logger.info("=" * 60)
+    except Exception as e:
+        app.logger.warning(f"Could not log Swiss Ephemeris version: {e}")
     
     # Set secret key for session management
     # PRODUCTION: SECRET_KEY MUST be set via environment variable
@@ -111,6 +132,8 @@ def create_app():
             200: Service healthy
             503: Service unhealthy (database connection failed)
         """
+        app.logger.debug("Health check requested")
+        
         health = {"ok": True}
         
         # Check database connection if configured
@@ -124,8 +147,53 @@ def create_app():
             # Return 503 if database is unhealthy
             if not db_healthy:
                 health["ok"] = False
+                app.logger.error(f"Health check failed: {db_message}")
                 return health, 503
         
+        app.logger.debug("Health check passed")
         return health, 200
+    
+    @app.get("/license")
+    def license_info():
+        """
+        AGPL compliance endpoint - provides license and source code information.
+        
+        Required by AGPL v3 for network-accessible software.
+        Users must have access to source code.
+        
+        Returns:
+            200: License information and source code links
+        """
+        try:
+            import swisseph as swe
+            swe_version = swe.version if hasattr(swe, 'version') else "unknown"
+        except Exception:
+            swe_version = "unknown"
+        
+        return jsonify({
+            "license": "AGPL-3.0",
+            "components": [
+                {
+                    "name": "Swiss Ephemeris",
+                    "version": swe_version,
+                    "license": "AGPL-3.0 or Commercial",
+                    "copyright": "Copyright (C) 1997-2021 Astrodienst AG, Switzerland",
+                    "source": "https://github.com/astrorigin/pyswisseph",
+                    "website": "https://www.astro.com/swisseph/"
+                },
+                {
+                    "name": "Jyotishika API",
+                    "license": "AGPL-3.0",
+                    "source": "[YOUR_GITHUB_REPO_URL]",
+                    "note": "Complete source code available under AGPL v3"
+                }
+            ],
+            "agpl_notice": (
+                "This software uses Swiss Ephemeris, licensed under AGPL v3. "
+                "Under AGPL, users who interact with this software over a network "
+                "are entitled to receive the complete source code. "
+                "Source code is available at the URLs listed above."
+            )
+        }), 200
     
     return app

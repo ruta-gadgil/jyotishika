@@ -311,7 +311,8 @@ def google_login():
     # Log OAuth flow initiation
     log_auth_event("auth_initiated")
     
-    current_app.logger.info(f"Redirecting to Google OAuth: {auth_url}")
+    # Don't log full URL (contains client_id and state token)
+    current_app.logger.info("Redirecting to Google OAuth")
     return redirect(auth_url)
 
 

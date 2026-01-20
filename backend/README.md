@@ -261,4 +261,66 @@ backend/
 
 ## License
 
-This project uses Swiss Ephemeris which is licensed under the GNU General Public License.
+**AGPL-3.0 License**
+
+This project is licensed under the GNU Affero General Public License v3 (AGPL-3.0) because it uses Swiss Ephemeris, which is AGPL-licensed.
+
+### What This Means
+
+**For Users:**
+- You have the right to access the complete source code
+- The source code is available at: [YOUR_GITHUB_REPO_URL]
+- This is free and open-source software
+
+**For Developers:**
+- If you modify this code and run it as a network service, you **must** make your source code available under AGPL-3.0
+- You must preserve all copyright notices
+- Any derivative works must also be AGPL-3.0 licensed
+
+### Components
+
+**Swiss Ephemeris:**
+- Version: pyswisseph >= 2.10.3
+- License: AGPL-3.0 or Commercial License
+- Copyright: (C) 1997-2021 Astrodienst AG, Switzerland
+- Source: https://github.com/astrorigin/pyswisseph
+- Website: https://www.astro.com/swisseph/
+
+**Jyotishika API:**
+- License: AGPL-3.0
+- Source: [YOUR_GITHUB_REPO_URL]
+
+### AGPL Compliance
+
+This software complies with AGPL v3 Section 13 (Remote Network Interaction):
+
+1. **Source Code Access**: Available via `/license` endpoint and GitHub repository
+2. **Copyright Notices**: Preserved in code and documentation
+3. **License Information**: Logged on application startup
+4. **User Rights**: Complete source code provided to all network users
+
+### API Endpoints for Compliance
+
+```bash
+# Get license and source code information
+curl http://localhost:8080/license
+```
+
+Returns JSON with:
+- License details for all components
+- Source code repository URLs
+- Copyright information
+- AGPL compliance notice
+
+### Commercial Licensing
+
+If you need to use this software in a proprietary/closed-source application:
+
+1. **Swiss Ephemeris**: Purchase a commercial license from Astrodienst AG
+   - Contact: https://www.astro.com/swisseph/
+   
+2. **Jyotishika API**: Contact the project maintainer for alternative licensing
+
+For the full license text, see [LICENSE](../LICENSE) file.
+
+For the full AGPL v3 text: https://www.gnu.org/licenses/agpl-3.0.html

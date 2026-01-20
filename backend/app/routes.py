@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from .schemas import ChartRequest, DashaRequest, ProfileUpdateRequest, AnalysisNoteCreate, AnalysisNoteUpdate
 from .auth import get_current_user
+from .logging_utils import sanitize_request_data, sanitize_dict
 from .astro.engine import init_ephemeris, julian_day_utc, ascendant_and_houses, compute_planets, compute_whole_sign_cusps, compute_sripati_cusps
 from .astro.utils import (
     to_utc,
@@ -29,20 +30,17 @@ def chart():
     from flask import g
     user = g.current_user
     
-    # Log and print request information
-    print(f"\n🔵 API Request received - Method: {request.method}, URL: {request.url}")
-    # print(f"📋 Request Headers: {dict(request.headers)}")
-    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
-    
-    current_app.logger.info(f"API Request received - Method: {request.method}, URL: {request.url}")
-    current_app.logger.info(f"Request Headers: {dict(request.headers)}")
-    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    # Log request information
+    current_app.logger.info(f"🔵 API Request received - Method: {request.method}, Path: {request.path}")
+    # Don't log full headers (contains auth cookies) or full request data (may contain PII)
+    current_app.logger.debug(f"📦 Request Content-Type: {request.content_type}, Length: {request.content_length or 0} bytes")
     
     try:
         payload = ChartRequest.model_validate_json(request.data)
-        # Log and print validated payload
-        print(f"✅ Validated Payload: {payload.model_dump()}")
-        current_app.logger.info(f"Validated Payload: {payload.model_dump()}")
+        # Log validated payload (sanitized)
+        sanitized_payload = sanitize_dict(payload.model_dump())
+        current_app.logger.info(f"✅ Validated chart request")
+        current_app.logger.debug(f"Chart request params: {sanitized_payload}")
     except Exception as e:
         # Log and print validation error
         print(f"❌ Request validation error: {str(e)}")
@@ -85,8 +83,7 @@ def chart():
         
         if cached_chart:
             # Return cached chart data
-            print(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
-            current_app.logger.info(f"Cache hit - returning cached chart for profile: {profile.id}")
+            current_app.logger.info(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
             
             response_data = {
                 "profile_id": str(profile.id),
@@ -104,8 +101,7 @@ def chart():
             return jsonify(response_data), 200
         
         # Step 3: Calculate chart (cache miss)
-        print(f"💫 Cache miss - calculating chart for profile: {profile.id}")
-        current_app.logger.info(f"Cache miss - calculating chart for profile: {profile.id}")
+        current_app.logger.info(f"💫 Cache miss - calculating chart for profile: {profile.id}")
         
         dt_utc = to_utc(payload.datetime, payload.tz, payload.utcOffsetMinutes, payload.latitude, payload.longitude)
         jd_ut = julian_day_utc(dt_utc)
@@ -123,7 +119,7 @@ def chart():
         asc_nav_info = get_navamsha_info(asc_long)
 
         planets = compute_planets(jd_ut, payload.nodeType)
-        print(asc_sign, planets)
+        current_app.logger.debug(f"Computed planets for asc_sign: {asc_sign}")
 
         # decorate with sign/house if requested and round for frontend
         result_planets = []
@@ -213,15 +209,13 @@ def chart():
         
         # Calculate planet placements in Bhav Chalit houses
         bhav_chalit_planets = []
-        # print(f"🌟 Bhav Chalit Planet Placements:")
-        current_app.logger.debug("Bhav Chalit Planet Placements:")
+        current_app.logger.debug("🌟 Bhav Chalit Planet Placements:")
         for p in planets:
             planet_house = house_from_cusps(p["longitude"], sripati_cusps)
             bhav_chalit_planets.append({
                 "planet": p["planet"],
                 "house": planet_house
             })
-            # print(f"   {p['planet']:10s} at {p['longitude']:6.2f}° → House {planet_house}")
             current_app.logger.debug(f"  {p['planet']:10s} at {p['longitude']:6.2f}° → House {planet_house}")
         
         out["bhavChalit"] = {
@@ -244,8 +238,7 @@ def chart():
         }
         
         saved_chart = save_chart(profile.id, chart_data)
-        print(f"💾 Chart saved to cache for profile: {profile.id}")
-        current_app.logger.info(f"Chart saved to cache for profile: {profile.id}")
+        current_app.logger.info(f"💾 Chart saved to cache for profile: {profile.id}")
         
         # Step 5: Return chart data with profile information
         response_data = {
@@ -255,15 +248,13 @@ def chart():
             **out
         }
 
-        # Log and print successful response
-        print(f"🎉 Chart calculation successful - Response status: 200")
-        current_app.logger.info(f"Chart calculation successful - Response status: 200")
+        # Log successful response
+        current_app.logger.info(f"🎉 Chart calculation successful")
         return jsonify(response_data), 200
 
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Chart calculation error: {str(e)}")
-        current_app.logger.error(f"Chart calculation error: {str(e)}")
+        # Log the error for debugging
+        current_app.logger.error(f"💥 Chart calculation error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "CALCULATION_ERROR",
@@ -296,8 +287,7 @@ def get_chart_by_profile(profile_id):
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 GET /chart/{profile_id} - User: {user.email}")
-    current_app.logger.info(f"GET /chart/{profile_id} - User: {user.email}")
+    current_app.logger.info(f"🔵 GET /chart/{profile_id} - User ID: {user.id}")
     
     try:
         # Step 1: Load profile with ownership verification
@@ -314,8 +304,7 @@ def get_chart_by_profile(profile_id):
         
         if cached_chart:
             # Return cached chart
-            print(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
-            current_app.logger.info(f"Cache hit - returning cached chart for profile: {profile.id}")
+            current_app.logger.info(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
             
             response_data = {
                 "profile_id": str(profile.id),
@@ -333,8 +322,7 @@ def get_chart_by_profile(profile_id):
             return jsonify(response_data), 200
         
         # Step 3: Chart not cached - recalculate
-        print(f"💫 Cache miss - recalculating chart for profile: {profile.id}")
-        current_app.logger.info(f"Cache miss - recalculating chart for profile: {profile.id}")
+        current_app.logger.info(f"💫 Cache miss - recalculating chart for profile: {profile.id}")
         
         # Convert profile data to calculation parameters
         dt_utc = to_utc(
@@ -469,8 +457,7 @@ def get_chart_by_profile(profile_id):
         }
         
         saved_chart = save_chart(profile.id, chart_data)
-        print(f"💾 Chart recalculated and saved to cache for profile: {profile.id}")
-        current_app.logger.info(f"Chart recalculated and saved to cache for profile: {profile.id}")
+        current_app.logger.info(f"💾 Chart recalculated and saved to cache for profile: {profile.id}")
         
         # Return response
         response_data = {
@@ -486,13 +473,11 @@ def get_chart_by_profile(profile_id):
         if house_cusps_data:
             response_data["houseCusps"] = house_cusps_data
         
-        print(f"🎉 Chart retrieval successful - Response status: 200")
-        current_app.logger.info(f"Chart retrieval successful - Response status: 200")
+        current_app.logger.info(f"🎉 Chart retrieval successful")
         return jsonify(response_data), 200
         
     except Exception as e:
-        print(f"💥 Chart retrieval error: {str(e)}")
-        current_app.logger.error(f"Chart retrieval error: {str(e)}")
+        current_app.logger.error(f"💥 Chart retrieval error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "CALCULATION_ERROR",
@@ -509,23 +494,20 @@ def dasha():
     if isinstance(session_data, tuple):  # Error response (401)
         return session_data
     
-    # Log and print request information
-    print(f"\n🔵 Dasha API Request received - Method: {request.method}, URL: {request.url}")
-    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
-    
-    current_app.logger.info(f"Dasha API Request received - Method: {request.method}, URL: {request.url}")
-    current_app.logger.info(f"Request Headers: {dict(request.headers)}")
-    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    # Log request information
+    current_app.logger.info(f"🔵 Dasha API Request received - Method: {request.method}, Path: {request.path}")
+    # Don't log full headers (contains auth cookies) or full request data (may contain PII)
+    current_app.logger.debug(f"📦 Request Content-Type: {request.content_type}, Length: {request.content_length or 0} bytes")
     
     try:
         payload = DashaRequest.model_validate_json(request.data)
-        # Log and print validated payload
-        print(f"✅ Validated Dasha Payload: {payload.model_dump()}")
-        current_app.logger.info(f"Validated Dasha Payload: {payload.model_dump()}")
+        # Log validated payload (sanitized)
+        sanitized_payload = sanitize_dict(payload.model_dump())
+        current_app.logger.info(f"✅ Validated dasha request")
+        current_app.logger.debug(f"Dasha request params: {sanitized_payload}")
     except Exception as e:
-        # Log and print validation error
-        print(f"❌ Dasha request validation error: {str(e)}")
-        current_app.logger.error(f"Dasha request validation error: {str(e)}")
+        # Log validation error
+        current_app.logger.warning(f"❌ Dasha request validation error: {str(e)}")
         return jsonify({
             "error": {
                 "code": "VALIDATION_ERROR",
@@ -585,15 +567,13 @@ def dasha():
             "metadata": metadata
         }
         
-        # Log and print successful response
-        print(f"🎉 Dasha calculation successful - Response status: 200")
-        current_app.logger.info(f"Dasha calculation successful - Response status: 200")
+        # Log successful response
+        current_app.logger.info(f"🎉 Dasha calculation successful")
         return jsonify(result), 200
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Dasha calculation error: {str(e)}")
-        current_app.logger.error(f"Dasha calculation error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Dasha calculation error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "CALCULATION_ERROR",
@@ -625,8 +605,7 @@ def get_profiles():
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 GET /profiles - User: {user.email}")
-    current_app.logger.info(f"GET /profiles - User: {user.email}")
+    current_app.logger.info(f"🔵 GET /profiles - User ID: {user.id}")
     
     try:
         # Get all active profiles for the authenticated user
@@ -663,16 +642,14 @@ def get_profiles():
                 profile_dict['notes_count'] = 0
                 profile_dict['note_titles'] = []
         
-        print(f"✅ Retrieved {len(profiles_data)} profiles for user: {user.email}")
-        current_app.logger.info(f"Retrieved {len(profiles_data)} profiles for user: {user.email}")
+        current_app.logger.info(f"✅ Retrieved {len(profiles_data)} profiles for user ID: {user.id}")
         
         # Return JSON array directly (not wrapped in object)
         return jsonify(profiles_data), 200
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Profile retrieval error: {str(e)}")
-        current_app.logger.error(f"Profile retrieval error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Profile retrieval error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "message": "Failed to retrieve profiles"
@@ -703,18 +680,16 @@ def update_profile_endpoint(profile_id):
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 PATCH /profiles/{profile_id} - User: {user.email}")
-    current_app.logger.info(f"PATCH /profiles/{profile_id} - User: {user.email}")
-    
-    # Log and print request information
-    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
-    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    current_app.logger.info(f"🔵 PATCH /profiles/{profile_id} - User ID: {user.id}")
+    # Don't log full request data (may contain PII)
+    current_app.logger.debug(f"📦 Request Length: {request.content_length or 0} bytes")
     
     try:
         # Step 1: Parse and validate request body
         payload = ProfileUpdateRequest.model_validate_json(request.data)
-        print(f"✅ Validated Payload: {payload.model_dump(exclude_none=True)}")
-        current_app.logger.info(f"Validated Payload: {payload.model_dump(exclude_none=True)}")
+        sanitized_payload = sanitize_dict(payload.model_dump(exclude_none=True))
+        current_app.logger.info(f"✅ Profile update validated")
+        current_app.logger.debug(f"Update params: {sanitized_payload}")
     except Exception as e:
         # Log and print validation error
         print(f"❌ Request validation error: {str(e)}")
@@ -742,15 +717,13 @@ def update_profile_endpoint(profile_id):
             return error_response
         
         # Step 3: Return updated profile
-        print(f"✅ Profile updated successfully: {profile_id}")
-        current_app.logger.info(f"Profile updated successfully: {profile_id}")
+        current_app.logger.info(f"✅ Profile updated successfully: {profile_id}")
         
         return jsonify(profile.to_dict()), 200
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Profile update error: {str(e)}")
-        current_app.logger.error(f"Profile update error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Profile update error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "INTERNAL_ERROR",
@@ -780,8 +753,7 @@ def delete_profile_endpoint(profile_id):
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 DELETE /profiles/{profile_id} - User: {user.email}")
-    current_app.logger.info(f"DELETE /profiles/{profile_id} - User: {user.email}")
+    current_app.logger.info(f"🔵 DELETE /profiles/{profile_id} - User ID: {user.id}")
     
     try:
         # Step 1: Delete profile
@@ -795,17 +767,15 @@ def delete_profile_endpoint(profile_id):
             return error_response
         
         # Step 2: Return success response
-        print(f"✅ Profile deleted successfully: {profile_id}")
-        current_app.logger.info(f"Profile deleted successfully: {profile_id}")
+        current_app.logger.info(f"✅ Profile deleted successfully: {profile_id}")
         
         return jsonify({
             "message": "Profile deleted successfully"
         }), 200
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Profile deletion error: {str(e)}")
-        current_app.logger.error(f"Profile deletion error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Profile deletion error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "INTERNAL_ERROR",
@@ -842,8 +812,7 @@ def get_profile_notes(profile_id):
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 GET /profiles/{profile_id}/notes - User: {user.email}")
-    current_app.logger.info(f"GET /profiles/{profile_id}/notes - User: {user.email}")
+    current_app.logger.info(f"🔵 GET /profiles/{profile_id}/notes - User ID: {user.id}")
     
     try:
         from .db import get_user_profile, get_notes_for_chart
@@ -869,12 +838,10 @@ def get_profile_notes(profile_id):
         
         if not chart:
             # Profile exists but no chart yet - return empty array
-            print(f"⚠️  Profile {profile_id} has no chart yet - returning empty notes array")
-            current_app.logger.info(f"Profile {profile_id} has no chart yet")
+            current_app.logger.info(f"⚠️  Profile {profile_id} has no chart yet - returning empty notes array")
             return jsonify([]), 200
         
-        print(f"✅ Profile found with chart: profile_id={profile_id}, chart_id={chart.id}")
-        current_app.logger.info(f"Profile {profile_id} has chart {chart.id}")
+        current_app.logger.debug(f"Profile found with chart: profile_id={profile_id}, chart_id={chart.id}")
         
         # Step 3: Get all notes for the chart
         notes = get_notes_for_chart(chart.id)
@@ -882,16 +849,14 @@ def get_profile_notes(profile_id):
         # Convert notes to dictionaries
         notes_data = [note.to_dict() for note in notes]
         
-        print(f"✅ Retrieved {len(notes_data)} notes for profile: {profile_id}")
-        current_app.logger.info(f"Retrieved {len(notes_data)} notes for profile: {profile_id}")
+        current_app.logger.info(f"✅ Retrieved {len(notes_data)} notes for profile: {profile_id}")
         
         # Return JSON array
         return jsonify(notes_data), 200
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Notes retrieval error: {str(e)}")
-        current_app.logger.error(f"Notes retrieval error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Notes retrieval error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "INTERNAL_ERROR",
@@ -923,18 +888,15 @@ def create_profile_note(profile_id):
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 POST /profiles/{profile_id}/notes - User: {user.email}")
-    current_app.logger.info(f"POST /profiles/{profile_id}/notes - User: {user.email}")
-    
-    # Log request data
-    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
-    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    current_app.logger.info(f"🔵 POST /profiles/{profile_id}/notes - User ID: {user.id}")
+    # Don't log full request data (may contain PII)
+    current_app.logger.debug(f"📦 Request Length: {request.content_length or 0} bytes")
     
     try:
         # Step 1: Parse and validate request body
         payload = AnalysisNoteCreate.model_validate_json(request.data)
-        print(f"✅ Validated Payload: {payload.model_dump()}")
-        current_app.logger.info(f"Validated Payload: {payload.model_dump()}")
+        current_app.logger.info(f"✅ Note creation validated")
+        current_app.logger.debug(f"Note title: {payload.title[:50] if len(payload.title) > 50 else payload.title}")
     except Exception as e:
         # Log and print validation error
         print(f"❌ Request validation error: {str(e)}")
@@ -970,8 +932,7 @@ def create_profile_note(profile_id):
         
         if not chart:
             # Profile exists but no chart yet
-            print(f"❌ Profile {profile_id} has no chart - cannot create notes")
-            current_app.logger.error(f"Profile {profile_id} has no chart")
+            current_app.logger.warning(f"❌ Profile {profile_id} has no chart - cannot create notes")
             return jsonify({
                 "error": {
                     "code": "NO_CHART",
@@ -979,8 +940,7 @@ def create_profile_note(profile_id):
                 }
             }), 400
         
-        print(f"✅ Profile found with chart: profile_id={profile_id}, chart_id={chart.id}")
-        current_app.logger.info(f"Creating note for profile {profile_id}, chart {chart.id}")
+        current_app.logger.debug(f"Profile found with chart: profile_id={profile_id}, chart_id={chart.id}")
         
         # Step 4: Create the note
         new_note = create_note(
@@ -989,16 +949,14 @@ def create_profile_note(profile_id):
             note=payload.note
         )
         
-        print(f"✅ Note created successfully: {new_note.id}")
-        current_app.logger.info(f"Note created successfully: {new_note.id}")
+        current_app.logger.info(f"✅ Note created successfully: {new_note.id}")
         
         # Return created note with 201 status
         return jsonify(new_note.to_dict()), 201
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Note creation error: {str(e)}")
-        current_app.logger.error(f"Note creation error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Note creation error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "INTERNAL_ERROR",
@@ -1030,18 +988,15 @@ def update_note_endpoint(note_id):
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 PATCH /notes/{note_id} - User: {user.email}")
-    current_app.logger.info(f"PATCH /notes/{note_id} - User: {user.email}")
-    
-    # Log request data
-    print(f"📦 Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
-    current_app.logger.info(f"Request Data (raw): {request.data.decode('utf-8') if request.data else 'No data'}")
+    current_app.logger.info(f"🔵 PATCH /notes/{note_id} - User ID: {user.id}")
+    # Don't log full request data (may contain PII)
+    current_app.logger.debug(f"📦 Request Length: {request.content_length or 0} bytes")
     
     try:
         # Step 1: Parse and validate request body
         payload = AnalysisNoteUpdate.model_validate_json(request.data)
-        print(f"✅ Validated Payload: {payload.model_dump(exclude_none=True)}")
-        current_app.logger.info(f"Validated Payload: {payload.model_dump(exclude_none=True)}")
+        current_app.logger.info(f"✅ Note update validated")
+        current_app.logger.debug(f"Update fields: {list(payload.model_dump(exclude_none=True).keys())}")
     except Exception as e:
         # Log and print validation error
         print(f"❌ Request validation error: {str(e)}")
@@ -1094,16 +1049,14 @@ def update_note_endpoint(note_id):
             note=payload.note
         )
         
-        print(f"✅ Note updated successfully: {note_id}")
-        current_app.logger.info(f"Note updated successfully: {note_id}")
+        current_app.logger.info(f"✅ Note updated successfully: {note_id}")
         
         # Return updated note
         return jsonify(updated_note.to_dict()), 200
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Note update error: {str(e)}")
-        current_app.logger.error(f"Note update error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Note update error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "INTERNAL_ERROR",
@@ -1132,8 +1085,7 @@ def delete_note_endpoint(note_id):
     from flask import g
     user = g.current_user
     
-    print(f"\n🔵 DELETE /notes/{note_id} - User: {user.email}")
-    current_app.logger.info(f"DELETE /notes/{note_id} - User: {user.email}")
+    current_app.logger.info(f"🔵 DELETE /notes/{note_id} - User ID: {user.id}")
     
     try:
         from .db import get_note_by_id, delete_note
@@ -1172,16 +1124,14 @@ def delete_note_endpoint(note_id):
         # Step 3: Delete the note
         delete_note(note_uuid)
         
-        print(f"✅ Note deleted successfully: {note_id}")
-        current_app.logger.info(f"Note deleted successfully: {note_id}")
+        current_app.logger.info(f"✅ Note deleted successfully: {note_id}")
         
         # Return 204 No Content
         return '', 204
         
     except Exception as e:
-        # Log and print the full error for debugging
-        print(f"💥 Note deletion error: {str(e)}")
-        current_app.logger.error(f"Note deletion error: {str(e)}")
+        # Log error for debugging
+        current_app.logger.error(f"💥 Note deletion error: {str(e)}", exc_info=True)
         return jsonify({
             "error": {
                 "code": "INTERNAL_ERROR",

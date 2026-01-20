@@ -13,11 +13,20 @@ _current_ayanamsha_key = None
 def init_ephemeris(ephe_path: str, ayanamsha_key: str):
     """Initialize Swiss Ephemeris with path and ayanamsha"""
     global _current_ayanamsha_key
-    swe.set_ephe_path(ephe_path)
-    _current_ayanamsha_key = ayanamsha_key
-    # For VEDANJANAM, use Lahiri mode internally (we'll apply offset manually)
-    sid_mode = AYANAMSHA[ayanamsha_key]
-    swe.set_sid_mode(sid_mode)
+    
+    logger.debug(f"Initializing ephemeris - Path: {ephe_path}, Ayanamsha: {ayanamsha_key}")
+    
+    try:
+        swe.set_ephe_path(ephe_path)
+        _current_ayanamsha_key = ayanamsha_key
+        # For VEDANJANAM, use Lahiri mode internally (we'll apply offset manually)
+        sid_mode = AYANAMSHA[ayanamsha_key]
+        swe.set_sid_mode(sid_mode)
+        
+        logger.debug(f"Ephemeris initialized successfully with ayanamsha: {ayanamsha_key}")
+    except Exception as e:
+        logger.error(f"Failed to initialize ephemeris: {str(e)}", exc_info=True)
+        raise
 
 def julian_day_utc(dt_utc: datetime) -> float:
     """Convert UTC datetime to Julian Day"""
@@ -151,7 +160,9 @@ def ascendant_and_houses(jd_ut: float, lat: float, lon: float, houseSystem: str)
             dsc = norm360(dsc - 0.1)
         
         angles = {"asc": asc, "mc": mc, "ic": ic, "dsc": dsc}
-        # print(f"📐 Angles calculated: ASC={asc:.2f}°, MC={mc:.2f}°, IC={ic:.2f}°, DSC={dsc:.2f}°")
+        # Angles calculated - available for debug logging if needed
+        import logging
+        logging.debug(f"📐 Angles calculated: ASC={asc:.2f}°, MC={mc:.2f}°, IC={ic:.2f}°, DSC={dsc:.2f}°")
         logger.debug(f"Angles calculated: ASC={asc:.2f}°, MC={mc:.2f}°, IC={ic:.2f}°, DSC={dsc:.2f}°")
         return asc, None, angles
     else:

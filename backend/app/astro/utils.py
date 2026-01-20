@@ -33,7 +33,8 @@ def detect_timezone_from_coordinates(latitude: float, longitude: float) -> str:
         
     except Exception as e:
         # If timezonefinder fails, use fallback
-        print(f"Warning: timezonefinder failed ({e}), using fallback detection")
+        import logging
+        logging.warning(f"timezonefinder failed ({e}), using fallback detection")
         return _fallback_timezone_detection(latitude, longitude)
 
 def _fallback_timezone_detection(latitude: float, longitude: float) -> str:

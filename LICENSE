@@ -1,0 +1,55 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+This project uses Swiss Ephemeris, which is licensed under the GNU Affero 
+General Public License (AGPL) version 3 or a commercial license.
+
+Copyright Notice:
+- Swiss Ephemeris: Copyright (C) 1997-2021 Astrodienst AG, Switzerland
+- Jyotishika API: Copyright (C) 2026 [YOUR_NAME]
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Additional Information for Network Use (AGPL Section 13):
+If you modify this program and run it on a server or provide it as a 
+service over a network, you must make the complete source code of your 
+modified version available to users. This includes all modifications and 
+derivative works.
+
+SWISS EPHEMERIS NOTICE:
+This software uses the Swiss Ephemeris library, which is available under 
+dual licensing:
+1. GNU Affero General Public License (AGPL) v3 - Free for AGPL-compatible projects
+2. Commercial License - Available from Astrodienst AG for proprietary use
+
+For more information about Swiss Ephemeris licensing:
+https://www.astro.com/swisseph/
+
+Swiss Ephemeris Source Code:
+https://github.com/astrorigin/pyswisseph
+
+IMPORTANT FOR USERS:
+Under the AGPL, if you interact with this software over a network (e.g., 
+through the API), you have the right to receive the complete source code. 
+The source code is available at: [YOUR_GITHUB_REPO_URL]
+
+IMPORTANT FOR DEVELOPERS:
+If you modify this software and make it available over a network, you MUST:
+1. Make your complete source code available under AGPL v3
+2. Preserve all copyright notices
+3. Clearly indicate any changes you made
+4. Provide users with access to the source code
+
+For the full text of the GNU Affero General Public License v3:
+https://www.gnu.org/licenses/agpl-3.0.html

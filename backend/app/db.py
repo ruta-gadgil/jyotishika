@@ -142,7 +142,7 @@ def get_or_create_user(google_sub, email, name):
             user.email = email  # Update in case email changed
             user.name = name    # Update in case name changed
             user.last_login_at = datetime.utcnow()
-            current_app.logger.info(f"Existing user logged in: {email}")
+            current_app.logger.info(f"Existing user logged in: {google_sub[:12]}...")
         else:
             # Create new user
             user = User(
@@ -152,7 +152,8 @@ def get_or_create_user(google_sub, email, name):
                 last_login_at=datetime.utcnow()
             )
             db.session.add(user)
-            current_app.logger.info(f"New user created: {email}")
+            email_domain = email.split("@")[1] if "@" in email else "unknown"
+            current_app.logger.info(f"New user created from domain: {email_domain}")
         
         # Commit transaction
         db.session.commit()
@@ -186,8 +187,9 @@ def is_email_approved(email):
     from .models import ApprovedUser
     
     try:
-        # Log the email being checked (for debugging)
-        current_app.logger.info(f"Checking authorization for email: {email}")
+        # Log the email domain being checked (for debugging)
+        email_domain = email.split("@")[1] if "@" in email else "unknown"
+        current_app.logger.info(f"Checking authorization for domain: {email_domain}")
         
         # Ensure we have a database session
         if not hasattr(current_app, 'extensions') or 'sqlalchemy' not in current_app.extensions:
@@ -198,23 +200,22 @@ def is_email_approved(email):
         approved_user = ApprovedUser.query.filter_by(email=email).first()
         
         if not approved_user:
-            current_app.logger.warning(f"Authorization denied: email not in allowlist: {email}")
-            # Debug: List all approved emails (for troubleshooting)
+            current_app.logger.warning(f"Authorization denied: domain not in allowlist: {email_domain}")
+            # Debug: List count of approved users (for troubleshooting)
             try:
-                all_approved = ApprovedUser.query.all()
-                approved_emails = [au.email for au in all_approved]
-                current_app.logger.debug(f"Approved emails in database: {approved_emails}")
+                approved_count = ApprovedUser.query.filter_by(is_active=True).count()
+                current_app.logger.debug(f"Active approved users in database: {approved_count}")
             except Exception as debug_e:
-                current_app.logger.debug(f"Could not list approved emails: {str(debug_e)}")
+                current_app.logger.debug(f"Could not count approved users: {str(debug_e)}")
             return False
         
-        current_app.logger.info(f"Found approved_user: email={approved_user.email}, is_active={approved_user.is_active}")
+        current_app.logger.info(f"Found approved_user for domain: {email_domain}, is_active={approved_user.is_active}")
         
         if not approved_user.is_active:
-            current_app.logger.warning(f"Authorization denied: email in allowlist but not active: {email}")
+            current_app.logger.warning(f"Authorization denied: user in allowlist but not active (domain: {email_domain})")
             return False
         
-        current_app.logger.info(f"Authorization approved for email: {email}")
+        current_app.logger.info(f"Authorization approved for domain: {email_domain}")
         return True
         
     except SQLAlchemyError as e:
@@ -260,18 +261,19 @@ def is_user_authorized(google_sub, email):
             return False, None
         
         if not user.is_active:
-            current_app.logger.warning(f"Authorization denied: user not active: {email}")
+            current_app.logger.warning(f"Authorization denied: user not active (google_sub: {google_sub[:12]}...)")
             return False, None
         
         # Check 2: Email is approved and active
         approved_user = ApprovedUser.query.filter_by(email=email).first()
+        email_domain = email.split("@")[1] if "@" in email else "unknown"
         
         if not approved_user:
-            current_app.logger.warning(f"Authorization denied: email not in allowlist: {email}")
+            current_app.logger.warning(f"Authorization denied: domain not in allowlist: {email_domain}")
             return False, None
         
         if not approved_user.is_active:
-            current_app.logger.warning(f"Authorization denied: email in allowlist but not active: {email}")
+            current_app.logger.warning(f"Authorization denied: user in allowlist but not active (domain: {email_domain})")
             return False, None
         
         # Both checks passed
