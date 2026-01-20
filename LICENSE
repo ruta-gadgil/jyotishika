@@ -6,7 +6,7 @@ General Public License (AGPL) version 3 or a commercial license.
 
 Copyright Notice:
 - Swiss Ephemeris: Copyright (C) 1997-2021 Astrodienst AG, Switzerland
-- Jyotishika API: Copyright (C) 2026 [YOUR_NAME]
+- Jyotishika API: Copyright (C) 2026 Ruta Gadgil
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
@@ -42,7 +42,7 @@ https://github.com/astrorigin/pyswisseph
 IMPORTANT FOR USERS:
 Under the AGPL, if you interact with this software over a network (e.g., 
 through the API), you have the right to receive the complete source code. 
-The source code is available at: [YOUR_GITHUB_REPO_URL]
+The source code is available at: https://github.com/ruta-gadgil/jyotishika
 
 IMPORTANT FOR DEVELOPERS:
 If you modify this software and make it available over a network, you MUST:
