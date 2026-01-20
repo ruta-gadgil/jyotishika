@@ -156,80 +156,107 @@ When a chart is calculated, you'll see the following logs in sequence:
 - IC = MC + 180°
 - DSC = ASC + 180°
 
-### 2. Sripati House Cusps
+### 2. Bhav Chalit Calculation (Structured Log)
 ```
-🏠 Sripati Cusps calculated:
-   House  1:  35.46°
-   House  2:  61.58°
-   House  3:  87.69°
-   House  4: 113.81°
-   House  5: 147.69°
-   House  6: 181.58°
-   House  7: 215.46°
-   House  8: 241.58°
-   House  9: 267.69°
-   House 10: 293.81°
-   House 11: 327.69°
-   House 12:   1.58°
+DEBUG | app.astro.engine | Bhav Chalit calculated | bhav_chalit={
+  "angles": {"asc": 35.46, "ic": 113.81, "dsc": 215.46, "mc": 293.81},
+  "madhyas": [
+    {"house": 1, "longitude": 35.46},
+    {"house": 2, "longitude": 61.58},
+    {"house": 3, "longitude": 87.69},
+    {"house": 4, "longitude": 113.81},
+    {"house": 5, "longitude": 147.69},
+    {"house": 6, "longitude": 181.58},
+    {"house": 7, "longitude": 215.46},
+    {"house": 8, "longitude": 241.58},
+    {"house": 9, "longitude": 267.69},
+    {"house": 10, "longitude": 293.81},
+    {"house": 11, "longitude": 327.69},
+    {"house": 12, "longitude": 1.58}
+  ],
+  "sandhis": [
+    {"sandhi": "1/2", "longitude": 48.52},
+    {"sandhi": "2/3", "longitude": 74.64},
+    {"sandhi": "3/4", "longitude": 100.75},
+    {"sandhi": "4/5", "longitude": 130.75},
+    {"sandhi": "5/6", "longitude": 164.64},
+    {"sandhi": "6/7", "longitude": 198.52},
+    {"sandhi": "7/8", "longitude": 228.52},
+    {"sandhi": "8/9", "longitude": 254.64},
+    {"sandhi": "9/10", "longitude": 280.75},
+    {"sandhi": "10/11", "longitude": 310.75},
+    {"sandhi": "11/12", "longitude": 344.64},
+    {"sandhi": "12/1", "longitude": 18.52}
+  ]
+}
 ```
 
 **What it shows:**
-- The starting degree for each of the 12 houses
-- Calculated using Sripati Padhati (quadrant trisection method)
+- **angles**: The four key angles (ASC, IC, DSC, MC) used for calculation
+- **madhyas**: All 12 Bhava Madhyas (house centers) - the strongest points of each house
+- **sandhis**: All 12 Bhava Sandhis (house boundaries/cusps) - the boundaries between houses
 
 **Key observations:**
-- House 1 cusp = ASC
-- House 4 cusp = IC
-- House 7 cusp = DSC
-- House 10 cusp = MC
+- House 1 Madhya = ASC
+- House 4 Madhya = IC
+- House 7 Madhya = DSC
+- House 10 Madhya = MC
+- Sandhis are midpoints between consecutive Madhyas
 - Houses are unequal in size (unlike whole sign houses)
 
-### 3. Planet Placements
+### 3. Planet Placements (Structured Log)
 ```
-🌟 Bhav Chalit Planet Placements:
-   Sun        at 340.28° → House 11
-   Moon       at  95.41° → House 3
-   Mercury    at 358.64° → House 11
-   Venus      at  13.84° → House 12
-   Mars       at  61.64° → House 2
-   Jupiter    at  99.86° → House 3
-   Saturn     at 280.91° → House 9
-   Uranus     at 259.83° → House 8
-   Neptune    at 262.86° → House 8
-   Pluto      at 206.36° → House 6
-   Rahu       at 270.99° → House 9
-   Ketu       at  90.99° → House 3
+DEBUG | app.routes | Bhav Chalit planet placements | bhav_chalit_planets=[
+  {"planet": "Sun", "longitude": 340.28, "house": 11},
+  {"planet": "Moon", "longitude": 95.41, "house": 3},
+  {"planet": "Mercury", "longitude": 358.64, "house": 11},
+  {"planet": "Venus", "longitude": 13.84, "house": 12},
+  {"planet": "Mars", "longitude": 61.64, "house": 2},
+  {"planet": "Jupiter", "longitude": 99.86, "house": 3},
+  {"planet": "Saturn", "longitude": 280.91, "house": 9},
+  {"planet": "Uranus", "longitude": 259.83, "house": 8},
+  {"planet": "Neptune", "longitude": 262.86, "house": 8},
+  {"planet": "Pluto", "longitude": 206.36, "house": 6},
+  {"planet": "Rahu", "longitude": 270.99, "house": 9},
+  {"planet": "Ketu", "longitude": 90.99, "house": 3}
+]
 ```
 
 **What it shows:**
-- Each planet's longitude in degrees
-- Which house the planet occupies according to Bhav Chalit
+- Each planet's name, longitude in degrees, and house placement in Bhav Chalit
+- All 12 planets (including Rahu and Ketu) are included
 
 **How it's calculated:**
 For each planet, the system checks which house cusp range it falls between:
-- If planet longitude >= House N cusp AND < House N+1 cusp, then planet is in House N
+- If planet longitude >= Sandhi[N-1] AND < Sandhi[N], then planet is in House N
 - Handles wraparound at 360°/0° boundary
+
+**Benefits of structured logging:**
+- All data in a single log entry (reduced verbosity from 28+ lines to 2 entries)
+- Easy to parse and filter programmatically
+- JSON structure enables log aggregation and analysis tools
+- Maintains all information while improving readability
 
 ## Example Analysis
 
 Using the example above:
 
 **Sun at 340.28°:**
-- House 11 starts at 327.69°
-- House 12 starts at 1.58°
-- 340.28° falls between 327.69° and 361.58° (1.58° + 360°)
+- Sandhi 10/11 (House 11 start) at 310.75°
+- Sandhi 11/12 (House 12 start) at 344.64°
+- 340.28° falls between 310.75° and 344.64°
 - Therefore, Sun is in House 11 ✓
 
 **Venus at 13.84°:**
-- House 12 starts at 1.58°
-- House 1 starts at 35.46°
-- 13.84° falls between 1.58° and 35.46°
+- Sandhi 12/1 (House 12 start) at 18.52° (wraps to 378.52°)
+- Sandhi 1/2 (House 1 start) at 48.52°
+- 13.84° falls between 18.52° (wrapped) and 48.52°
 - Therefore, Venus is in House 12 ✓
 
 **Moon at 95.41°:**
-- House 3 starts at 87.69°
-- House 4 starts at 113.81°
-- 95.41° falls between 87.69° and 113.81°
+- Sandhi 2/3 (House 3 start) at 74.64°
+- Sandhi 3/4 (House 4 start) at 100.75°
+- 95.41° falls between 74.64° and 100.75°
 - Therefore, Moon is in House 3 ✓
 
 ## Debugging Tips

@@ -278,14 +278,13 @@ def compute_sripati_cusps(asc: float, ic: float, dsc: float, mc: float):
         
         sandhis.append(sandhi)
     
-    
-    logger.debug("Bhav Chalit (Sripati) calculated:")
-    logger.debug("Bhava Madhyas (house centers):")
-    for i, madhya in enumerate(madhya_list, 1):
-        logger.debug(f"  House {i:2d} Madhya: {madhya:6.2f}°")
-    logger.debug("Bhava Sandhis (house boundaries/cusps):")
-    for i, sandhi in enumerate(sandhis, 1):
-        next_house = (i % 12) + 1
-        logger.debug(f"  Sandhi {i:2d}/{next_house:2d}: {sandhi:6.2f}°")
+    # Log consolidated bhav chalit calculation data
+    logger.debug("Bhav Chalit calculated", extra={
+        "bhav_chalit": {
+            "angles": {"asc": asc, "ic": ic, "dsc": dsc, "mc": mc},
+            "madhyas": [{"house": i+1, "longitude": round(m, 2)} for i, m in enumerate(madhya_list)],
+            "sandhis": [{"sandhi": f"{i+1}/{(i%12)+1}", "longitude": round(s, 2)} for i, s in enumerate(sandhis)]
+        }
+    })
     
     return sandhis

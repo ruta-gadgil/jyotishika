@@ -209,14 +209,23 @@ def chart():
         
         # Calculate planet placements in Bhav Chalit houses
         bhav_chalit_planets = []
-        current_app.logger.debug("🌟 Bhav Chalit Planet Placements:")
+        planet_placements = []
         for p in planets:
             planet_house = house_from_cusps(p["longitude"], sripati_cusps)
             bhav_chalit_planets.append({
                 "planet": p["planet"],
                 "house": planet_house
             })
-            current_app.logger.debug(f"  {p['planet']:10s} at {p['longitude']:6.2f}° → House {planet_house}")
+            planet_placements.append({
+                "planet": p["planet"],
+                "longitude": round(p["longitude"], 2),
+                "house": planet_house
+            })
+        
+        # Log consolidated planet placements
+        current_app.logger.debug("Bhav Chalit planet placements", extra={
+            "bhav_chalit_planets": planet_placements
+        })
         
         out["bhavChalit"] = {
             "system": "SRIPATI",
