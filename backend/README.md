@@ -165,14 +165,126 @@ Health check endpoint:
 curl http://localhost:8080/healthz
 ```
 
-## Configuration
+## Setup & Configuration
 
-Environment variables:
+### Environment Variables
 
-- `EPHE_PATH` (required): Path to Swiss Ephemeris data files
-- `FLASK_ENV` (optional): development | production
-- `PORT` (optional): Server port (default: 8080)
-- `ALLOWED_ORIGINS` (optional): CORS origins (default: "*")
+Create a `.env` or `local.env` file (see `env.example` for template):
+
+**Required:**
+```bash
+# Swiss Ephemeris data files directory
+EPHE_PATH=./ephe
+
+# PostgreSQL database (Supabase)
+DATABASE_URL=postgresql://postgres.[PROJECT]:[PASSWORD]@db.[REGION].supabase.co:5432/postgres
+
+# Google OAuth (get from Google Cloud Console)
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+APP_BASE_URL=http://localhost:8000
+FRONTEND_BASE_URL=http://localhost:3000
+
+# Security (generate with: openssl rand -hex 32)
+SECRET_KEY=your-secret-key-here
+```
+
+**Optional:**
+```bash
+FLASK_ENV=development              # development | production
+PORT=8080                          # Server port
+ALLOWED_ORIGINS=*                  # CORS origins (comma-separated)
+LOG_LEVEL=INFO                     # DEBUG | INFO | WARNING | ERROR
+```
+
+**Production Notes:**
+- Use **Session Pooler** URL (port 6543) for `DATABASE_URL` in production
+- Set `ALLOWED_ORIGINS` to specific domains (no wildcards)
+- Set `FLASK_ENV=production` for production deployments
+- Generate a strong `SECRET_KEY` and keep it secure
+
+### Database Setup
+
+This application uses PostgreSQL (Supabase) for user authentication and data storage.
+
+**1. Create Supabase Project:**
+- Go to [Supabase](https://supabase.com/)
+- Create a new project
+- Get your connection string from Project Settings > Database
+
+**2. Apply Database Schema:**
+
+```bash
+# Option A: Supabase Dashboard
+# - Go to SQL Editor
+# - Copy contents of backend/sql/schema.sql
+# - Run the query
+
+# Option B: Command Line
+psql $DATABASE_URL -f backend/sql/schema.sql
+```
+
+This creates the following tables:
+- `users` - User accounts (auto-created on first login)
+- `approved_users` - Email allowlist for authorization
+- `profiles` - User birth chart profiles
+- `charts` - Saved birth charts
+
+**3. Add Approved Users:**
+
+Users must be added to the `approved_users` table before they can log in:
+
+```sql
+-- Add users to allowlist
+INSERT INTO approved_users (email, note) VALUES
+    ('your-email@example.com', 'Admin'),
+    ('user@example.com', 'Beta tester');
+```
+
+### Google OAuth Setup
+
+**1. Create OAuth Client:**
+- Go to [Google Cloud Console](https://console.cloud.google.com/)
+- Navigate to APIs & Services > Credentials
+- Create OAuth 2.0 Client ID (Web application)
+
+**2. Configure Authorized URIs:**
+- **Authorized JavaScript origins:** `http://localhost:8000`
+- **Authorized redirect URIs:** `http://localhost:8000/auth/google/callback`
+
+**3. Update Environment Variables:**
+- Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in your `.env` file
+
+### Authentication Flow
+
+```
+1. User visits /auth/google/login
+2. Redirected to Google for authentication
+3. Google redirects back to /auth/google/callback
+4. Backend checks if email is in approved_users table
+   - If approved: Create session, redirect to frontend
+   - If not approved: Redirect to /auth/denied
+5. User can access protected endpoints with session cookie
+```
+
+**Protected Endpoints:**
+- `/me` - Get current user info
+- `/chart` - Calculate birth charts (requires authentication)
+- `/dasha` - Calculate dasha periods (requires authentication)
+
+**User Management:**
+```sql
+-- Approve new user
+INSERT INTO approved_users (email, note) VALUES ('user@example.com', 'Approved');
+
+-- Deactivate user
+UPDATE approved_users SET is_active = false WHERE email = 'user@example.com';
+
+-- Reactivate user
+UPDATE approved_users SET is_active = true WHERE email = 'user@example.com';
+```
+
+For detailed deployment instructions, see [PRODUCTION_CHECKLIST.md](PRODUCTION_CHECKLIST.md).
 
 ## Development
 
