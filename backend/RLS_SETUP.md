@@ -18,16 +18,19 @@ Row Level Security (RLS) provides **database-level protection** for sensitive pr
 
 ## Current Status
 
-**RLS is enabled but policies are commented out** (permissive mode).
+**RLS is enabled on all tables** with different enforcement levels:
 
-This means:
-- ✅ RLS is active on `profiles` and `charts` tables
-- ⚠️ Policies are not enforced yet (allows all operations)
-- 🔒 To activate enforcement, uncomment policies in `schema.sql`
+- ✅ **RLS active and enforced** on `approved_users` and `users` tables (denies all PostgREST access)
+- ✅ **RLS active** on `profiles`, `charts`, and `analysis_notes` tables
+- ⚠️ **Policies commented out** for `profiles`, `charts`, and `analysis_notes` (permissive mode - ready for future use)
+- 🔒 **Decision**: User-scoped RLS policies remain commented out. Application-level security checks provide sufficient protection for current needs.
+- 📝 **Future**: To activate enforcement for user data tables, uncomment policies in `schema.sql` and add `set_rls_user_id()` calls to routes
 
 ## Setup Instructions
 
-### Step 1: Enable RLS Policies
+> **Note**: The following instructions are for **future use** when you decide to enable user-scoped RLS policies. Currently, these policies remain commented out and application-level security is used instead.
+
+### Step 1: Enable RLS Policies (Future)
 
 1. Open `backend/sql/schema.sql`
 2. Find the RLS policy section (near the end)
@@ -45,7 +48,7 @@ This means:
    psql $DATABASE_URL -f backend/sql/schema.sql
    ```
 
-### Step 2: Update Application Code
+### Step 2: Update Application Code (Future)
 
 Add RLS session variable setting to your route handlers:
 
@@ -112,19 +115,42 @@ other_profile = Profile.query.filter_by(id=other_user_profile_id).first()
 
 ## RLS Policies Explained
 
-### Profiles Table Policies
+### Authorization Tables (approved_users, users)
 
+These tables have **restrictive policies** that deny all public access via PostgREST:
+
+- **approved_users**: Denies all PostgREST access (admin-only table)
+- **users**: Denies all PostgREST access (user account data)
+
+**Why these policies?**
+- These tables are exposed via Supabase's PostgREST API (auto-generated REST endpoints)
+- The application uses direct PostgreSQL connections (not PostgREST), so these policies don't affect application functionality
+- Service role connections bypass RLS, allowing admin operations via Supabase dashboard
+- This addresses Supabase Security Advisor warnings about RLS being disabled
+
+**Important Notes:**
+- Direct database connections from the application continue to work unchanged
+- Admin operations via Supabase dashboard continue to work (service role bypasses RLS)
+- These policies only block unauthorized access via PostgREST endpoints
+
+### User Data Tables (profiles, charts, analysis_notes)
+
+These tables have **user-scoped policies** (currently commented out):
+
+**Profiles Table Policies:**
 - **SELECT**: Users can only read their own active profiles
 - **INSERT**: Users can only create profiles with their own `user_id`
 - **UPDATE**: Users can only update their own profiles
 - **DELETE**: Users can only delete their own profiles
 
-### Charts Table Policies
-
+**Charts Table Policies:**
 - **SELECT**: Users can only read charts for their own profiles
 - **INSERT**: Users can only create charts for their own profiles
 - **UPDATE**: Users can only update charts for their own profiles
 - **DELETE**: Users can only delete charts for their own profiles
+
+**Analysis Notes Table Policies:**
+- Similar user-scoped policies based on chart ownership
 
 ## Troubleshooting
 
@@ -149,30 +175,45 @@ other_profile = Profile.query.filter_by(id=other_user_profile_id).first()
 
 **Solution**:
 ```sql
--- Check if RLS is enabled
-SELECT tablename, rowsecurity FROM pg_tables WHERE tablename IN ('profiles', 'charts');
+-- Check if RLS is enabled on all tables
+SELECT tablename, rowsecurity FROM pg_tables 
+WHERE tablename IN ('approved_users', 'users', 'profiles', 'charts', 'analysis_notes');
 
 -- Check if policies exist
-SELECT * FROM pg_policies WHERE tablename IN ('profiles', 'charts');
+SELECT * FROM pg_policies 
+WHERE tablename IN ('approved_users', 'users', 'profiles', 'charts', 'analysis_notes');
 ```
+
+### Issue: PostgREST access blocked for approved_users/users
+
+**Cause**: This is expected behavior - these tables deny all PostgREST access for security
+
+**Solution**: 
+- If you need to access these tables, use direct database connections (as the application does)
+- Admin operations via Supabase dashboard continue to work (service role bypasses RLS)
+- This is a security feature, not a bug
 
 ## Migration Strategy
 
-### Phase 1: Enable RLS (Current)
-- ✅ RLS enabled on tables
-- ⚠️ Policies commented out (permissive)
-- ✅ Application code works normally
+### Phase 1: Enable RLS on Authorization Tables (Completed)
+- ✅ RLS enabled on `approved_users` and `users` tables
+- ✅ Restrictive policies active (deny all PostgREST access)
+- ✅ Application code works normally (direct DB connections unaffected)
+- ✅ Addresses Supabase Security Advisor warnings
+- ✅ Function `app.current_user_id()` has fixed `search_path` for security
 
-### Phase 2: Test with Policies (Recommended)
-- Uncomment policies in development environment
+### Phase 2: Enable RLS on User Data Tables (Current - Policies Commented)
+- ✅ RLS enabled on `profiles`, `charts`, and `analysis_notes` tables
+- ⚠️ Policies commented out (permissive mode - ready for future use)
+- ✅ Application code works normally with application-level security checks
+- 📝 **Decision**: Keeping policies commented for now. Application-level security provides sufficient protection.
+
+### Phase 3: Enable User Data Policies (Future - Optional)
+- Uncomment policies for `profiles`, `charts`, and `analysis_notes` in development environment
 - Add `set_rls_user_id()` calls to routes
-- Test all functionality
+- Test all functionality thoroughly
 - Fix any issues
-
-### Phase 3: Deploy to Production
-- Enable policies in production
-- Monitor for any access issues
-- Keep application-level checks as backup
+- Deploy to production with monitoring
 
 ## Best Practices
 
@@ -188,6 +229,7 @@ SELECT * FROM pg_policies WHERE tablename IN ('profiles', 'charts');
 - **Use both layers**: Application checks + RLS = defense in depth
 - **Session variables are transaction-scoped**: Reset for each request
 - **Function is SECURITY DEFINER**: `app.current_user_id()` runs with elevated privileges (safe, reads session variable only)
+- **Fixed search_path**: The function uses `SET search_path = pg_catalog` to prevent search_path hijacking attacks
 
 ## References
 

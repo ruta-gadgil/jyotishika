@@ -99,6 +99,30 @@ COMMENT ON COLUMN users.email IS 'User email from Google. Stored for convenience
 COMMENT ON COLUMN users.last_login_at IS 'Updated on every successful login via OAuth callback.';
 COMMENT ON COLUMN users.is_active IS 'Account active flag. Both this AND approved_users.is_active must be true.';
 
+-- Enable RLS on approved_users table
+ALTER TABLE approved_users ENABLE ROW LEVEL SECURITY;
+
+-- Enable RLS on users table
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for approved_users
+-- Deny all public access via PostgREST (admin-only table, accessed only via direct DB connections)
+-- Service role connections bypass RLS, allowing admin operations via Supabase dashboard
+DROP POLICY IF EXISTS approved_users_deny_all ON approved_users;
+CREATE POLICY approved_users_deny_all ON approved_users
+    FOR ALL
+    USING (false)
+    WITH CHECK (false);
+
+-- RLS Policies for users
+-- Deny all public access via PostgREST
+-- Application uses direct DB connections which bypass RLS when using service role
+DROP POLICY IF EXISTS users_deny_all ON users;
+CREATE POLICY users_deny_all ON users
+    FOR ALL
+    USING (false)
+    WITH CHECK (false);
+
 -- Table 3: profiles
 -- Birth details and chart calculation settings
 -- Each profile belongs to a user and has one associated chart (1:1)
@@ -245,6 +269,7 @@ CREATE SCHEMA IF NOT EXISTS app;
 
 -- Create a function to get current user ID from session variable
 -- This function reads the app.current_user_id session variable
+-- SECURITY: Fixed search_path prevents search_path hijacking attacks
 CREATE OR REPLACE FUNCTION app.current_user_id()
 RETURNS UUID AS $$
 BEGIN
@@ -256,7 +281,7 @@ EXCEPTION
         -- If variable not set or invalid, return NULL (deny access)
         RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog;
 
 -- RLS Policy: Users can SELECT their own profiles
 -- Uncomment when ready to enforce RLS:
