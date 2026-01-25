@@ -9,28 +9,34 @@ import os
 import secrets
 import uuid
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, redirect, make_response, current_app
 from jose import jwt, JWTError
 from jose.utils import base64url_decode
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.backends import default_backend
 import requests
+import boto3
+from botocore.exceptions import ClientError
 
 # Create auth blueprint
 auth_bp = Blueprint("auth", __name__)
 
-# In-memory session storage
-# Key: session_id (UUID string), Value: dict with user info
-# PRODUCTION: Replace with Redis, database, or distributed cache (e.g., Redis, Memcached)
-# This in-memory storage won't work with multiple server instances or after restarts
-sessions = {}
+# DynamoDB configuration
+# Production: Sessions and state tokens stored in DynamoDB for scalability
+dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
+SESSIONS_TABLE = os.environ.get('DYNAMODB_SESSIONS_TABLE', 'samved-sessions')
+STATE_TABLE = os.environ.get('DYNAMODB_STATE_TABLE', 'samved-state-tokens')
 
-# In-memory state token storage for CSRF protection
-# Key: state token (string), Value: timestamp (datetime)
-# PRODUCTION: Replace with Redis or database-backed storage
-# State tokens should be shared across all server instances for load-balanced deployments
-state_tokens = {}
+try:
+    sessions_table = dynamodb.Table(SESSIONS_TABLE)
+    state_table = dynamodb.Table(STATE_TABLE)
+except Exception as e:
+    # Fallback for local development without DynamoDB
+    sessions_table = None
+    state_table = None
+    sessions = {}  # In-memory fallback
+    state_tokens = {}  # In-memory fallback
 
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
@@ -51,6 +57,121 @@ SCOPES = "openid email profile"
 
 # Redirect URI for Google OAuth callback
 REDIRECT_URI = f"{APP_BASE_URL}/auth/google/callback"
+
+
+# ============================================================================
+# DynamoDB Session Management Functions
+# ============================================================================
+
+def get_session(session_id: str) -> dict | None:
+    """Get session from DynamoDB."""
+    if not sessions_table:
+        # Fallback to in-memory for local development
+        return sessions.get(session_id)
+    
+    try:
+        response = sessions_table.get_item(Key={'session_id': session_id})
+        item = response.get('Item')
+        if item:
+            # Check if session is expired
+            expires_at = item.get('expires_at', 0)
+            if datetime.utcnow().timestamp() > expires_at:
+                # Session expired, delete it
+                delete_session(session_id)
+                return None
+        return item
+    except ClientError as e:
+        current_app.logger.error(f"DynamoDB get_session error: {e}")
+        return None
+
+
+def save_session(session_id: str, session_data: dict) -> bool:
+    """Save session to DynamoDB."""
+    if not sessions_table:
+        # Fallback to in-memory for local development
+        sessions[session_id] = session_data
+        return True
+    
+    try:
+        item = {
+            'session_id': session_id,
+            'created_at': datetime.utcnow().isoformat(),
+            'expires_at': int((datetime.utcnow() + timedelta(days=7)).timestamp()),
+            **session_data
+        }
+        sessions_table.put_item(Item=item)
+        return True
+    except ClientError as e:
+        current_app.logger.error(f"DynamoDB save_session error: {e}")
+        return False
+
+
+def delete_session(session_id: str) -> bool:
+    """Delete session from DynamoDB."""
+    if not sessions_table:
+        # Fallback to in-memory for local development
+        if session_id in sessions:
+            del sessions[session_id]
+        return True
+    
+    try:
+        sessions_table.delete_item(Key={'session_id': session_id})
+        return True
+    except ClientError as e:
+        current_app.logger.error(f"DynamoDB delete_session error: {e}")
+        return False
+
+
+def save_state_token(state: str) -> bool:
+    """Save OAuth state token to DynamoDB with TTL."""
+    if not state_table:
+        # Fallback to in-memory for local development
+        state_tokens[state] = datetime.utcnow()
+        return True
+    
+    try:
+        item = {
+            'state': state,
+            'created_at': datetime.utcnow().isoformat(),
+            'expires_at': int((datetime.utcnow() + timedelta(minutes=10)).timestamp())
+        }
+        state_table.put_item(Item=item)
+        return True
+    except ClientError as e:
+        current_app.logger.error(f"DynamoDB save_state error: {e}")
+        return False
+
+
+def validate_and_delete_state_token(state: str) -> bool:
+    """Validate and consume state token (one-time use)."""
+    if not state_table:
+        # Fallback to in-memory for local development
+        if state in state_tokens:
+            # Clean up old tokens
+            current_time = datetime.utcnow()
+            expired_states = [
+                s for s, timestamp in state_tokens.items()
+                if (current_time - timestamp).total_seconds() > 600
+            ]
+            for expired_state in expired_states:
+                del state_tokens[expired_state]
+            
+            # Check and consume token
+            if state in state_tokens:
+                del state_tokens[state]
+                return True
+        return False
+    
+    try:
+        response = state_table.delete_item(
+            Key={'state': state},
+            ReturnValues='ALL_OLD'
+        )
+        # If Attributes is present, the item existed
+        return 'Attributes' in response
+    except ClientError as e:
+        current_app.logger.error(f"DynamoDB validate_state error: {e}")
+        return False
 
 
 def get_client_ip():
@@ -149,25 +270,11 @@ def validate_state_token(state: str) -> bool:
     Returns:
         True if valid, False otherwise
     """
-    if not state or state not in state_tokens:
+    if not state:
         return False
     
-    # Clean up old state tokens (older than 10 minutes)
-    # PRODUCTION: If using Redis/database, use TTL/expiration instead of manual cleanup
-    current_time = datetime.utcnow()
-    expired_states = [
-        s for s, timestamp in state_tokens.items()
-        if (current_time - timestamp).total_seconds() > 600
-    ]
-    for expired_state in expired_states:
-        del state_tokens[expired_state]
-    
-    # Check if state exists and is not expired
-    if state in state_tokens:
-        del state_tokens[state]  # Use once
-        return True
-    
-    return False
+    # Use DynamoDB helper function
+    return validate_and_delete_state_token(state)
 
 
 def get_current_user():
@@ -216,8 +323,8 @@ def get_current_user():
             }
         }), 401
     
-    # Step 2: Validate session exists in memory
-    session = sessions.get(session_id)
+    # Step 2: Validate session exists
+    session = get_session(session_id)
     
     if not session:
         log_auth_event("session_invalid", session_id=session_id, details={"reason": "session_not_found"})
@@ -292,7 +399,7 @@ def google_login():
     
     # Generate state token for CSRF protection
     state = generate_state_token()
-    state_tokens[state] = datetime.utcnow()
+    save_state_token(state)
     
     # Build Google OAuth URL
     params = {
@@ -571,17 +678,16 @@ def google_callback():
             }), 401
         
         # Create session
-        # PRODUCTION: Store sessions in Redis/database instead of in-memory dict
-        # Add session expiration check (e.g., expire after 7 days of inactivity)
         session_id = str(uuid.uuid4())
-        sessions[session_id] = {
+        session_data = {
             "user_id": user_info["user_id"],  # Google sub (google_sub)
             "email": user_info["email"],
             "name": user_info.get("name", ""),
             "picture": user_info.get("picture", ""),
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.utcnow().isoformat(),
             "db_user_id": str(user.id)  # Database user ID for reference
         }
+        save_session(session_id, session_data)
         
         # Log session creation (only partial session ID for security)
         log_auth_event("session_created", user_id=user_info["user_id"], session_id=session_id)
@@ -590,20 +696,16 @@ def google_callback():
         response = make_response(redirect(f"{FRONTEND_BASE_URL}?auth=success"))
         
         # Set HTTP-only cookie with session ID
-        # PRODUCTION CHANGES REQUIRED:
-        # - secure=True (requires HTTPS)
-        # - domain=".yourdomain.com" (if frontend/backend on different subdomains)
-        # - samesite="None" (if frontend/backend on different domains, requires secure=True)
-        # - Consider shorter max_age for production (e.g., 1-3 days instead of 7)
+        # PRODUCTION: Cookie settings for samved.ai
         response.set_cookie(
             "session_id",
             session_id,
             httponly=True,
-            secure=False,  # PRODUCTION: Change to True (requires HTTPS)
-            samesite="Lax",  # PRODUCTION: Use "None" if cross-domain, requires secure=True
+            secure=True,              # Required for HTTPS
+            samesite="None",          # Required for cross-origin cookies
             path="/",
-            max_age=86400 * 7,  # PRODUCTION: Consider shorter expiration (e.g., 86400 * 1 for 1 day)
-            # domain=None  # PRODUCTION: Set domain if needed (e.g., ".yourdomain.com")
+            max_age=86400 * 7,        # 7 days
+            domain=".samved.ai"       # Shared across api.samved.ai and app.samved.ai
         )
         
         return response
@@ -723,27 +825,31 @@ def logout():
     # Get session ID from cookie
     session_id = request.cookies.get("session_id")
     
-    if session_id and session_id in sessions:
+    if session_id:
+        # Get user_id before deleting session
+        session = get_session(session_id)
+        user_id = session.get("user_id") if session else None
+        
         # Delete session
-        user_id = sessions[session_id].get("user_id")
-        del sessions[session_id]
+        delete_session(session_id)
+        
         # Log logout event
-        log_auth_event("logout_success", user_id=user_id, session_id=session_id)
+        if user_id:
+            log_auth_event("logout_success", user_id=user_id, session_id=session_id)
     
     # Create response
     response = jsonify({"message": "Logged out successfully"})
     
-    # Clear the cookie
-    # PRODUCTION: Match cookie settings from login (secure=True, domain if needed)
+    # Clear the cookie (match production settings)
     response.set_cookie(
         "session_id",
         "",
         expires=0,
         httponly=True,
-        secure=False,  # PRODUCTION: Change to True
-        samesite="Lax",  # PRODUCTION: Match login cookie setting
-        path="/"
-        # domain=None  # PRODUCTION: Set if domain was set during login
+        secure=True,
+        samesite="None",
+        path="/",
+        domain=".samved.ai"
     )
     
     return response, 200

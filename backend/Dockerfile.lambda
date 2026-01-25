@@ -1,0 +1,19 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# Install build dependencies for pyswisseph (C extension)
+RUN yum install -y gcc python3-devel
+
+# Copy and install Python dependencies
+COPY requirements.txt ${LAMBDA_TASK_ROOT}/
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
+
+# Copy application code
+COPY app ${LAMBDA_TASK_ROOT}/app
+COPY ephe ${LAMBDA_TASK_ROOT}/ephe
+COPY lambda_handler.py ${LAMBDA_TASK_ROOT}/
+
+# Set ephemeris path
+ENV EPHE_PATH=/var/task/ephe
+
+# Lambda handler
+CMD ["lambda_handler.handler"]

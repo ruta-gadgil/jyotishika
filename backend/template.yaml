@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Samved.ai Jyotishika API - Vedic Astrology Backend
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+  GoogleClientId:
+    Type: String
+  GoogleClientSecret:
+    Type: String
+    NoEcho: true
+  SecretKey:
+    Type: String
+    NoEcho: true
+  AllowedOrigins:
+    Type: String
+    Default: https://app.samved.ai
+  AppBaseUrl:
+    Type: String
+    Default: https://api.samved.ai
+  FrontendBaseUrl:
+    Type: String
+    Default: https://app.samved.ai
+
+Resources:
+  # DynamoDB access policy
+  SessionsTablePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Allow Lambda to access DynamoDB session tables
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:DeleteItem
+              - dynamodb:UpdateItem
+              - dynamodb:Query
+            Resource:
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/samved-sessions
+              - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/samved-state-tokens
+
+  JyotishikaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Policies:
+        - !Ref SessionsTablePolicy
+      Events:
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            Path: /
+            Method: ANY
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+      Environment:
+        Variables:
+          FLASK_ENV: !Ref Environment
+          EPHE_PATH: /var/task/ephe
+          DATABASE_URL: !Ref DatabaseUrl
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          GOOGLE_CLIENT_SECRET: !Ref GoogleClientSecret
+          SECRET_KEY: !Ref SecretKey
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+          APP_BASE_URL: !Ref AppBaseUrl
+          FRONTEND_BASE_URL: !Ref FrontendBaseUrl
+          DYNAMODB_SESSIONS_TABLE: samved-sessions
+          DYNAMODB_STATE_TABLE: samved-state-tokens
+    Metadata:
+      DockerContext: .
+      Dockerfile: Dockerfile.lambda
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  FunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt JyotishikaFunction.Arn
