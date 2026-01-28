@@ -84,6 +84,7 @@ Resources:
           FRONTEND_BASE_URL: !Ref FrontendBaseUrl
           DYNAMODB_SESSIONS_TABLE: samved-sessions
           DYNAMODB_STATE_TABLE: samved-state-tokens
+          USE_DYNAMODB_SESSIONS: "true"
     Metadata:
       DockerContext: .
       Dockerfile: Dockerfile.lambda
