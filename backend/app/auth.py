@@ -10,6 +10,7 @@ import secrets
 import uuid
 import base64
 from datetime import datetime, timedelta
+from typing import Optional
 from flask import Blueprint, request, jsonify, redirect, make_response, current_app
 from jose import jwt, JWTError
 from jose.utils import base64url_decode
@@ -23,20 +24,23 @@ from botocore.exceptions import ClientError
 auth_bp = Blueprint("auth", __name__)
 
 # DynamoDB configuration
-# Production: Sessions and state tokens stored in DynamoDB for scalability
-dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
-SESSIONS_TABLE = os.environ.get('DYNAMODB_SESSIONS_TABLE', 'samved-sessions')
-STATE_TABLE = os.environ.get('DYNAMODB_STATE_TABLE', 'samved-state-tokens')
+# Set USE_DYNAMODB_SESSIONS=true (e.g. in Lambda/prod) to use DynamoDB; leave unset or false for local in-memory.
+USE_DYNAMODB_SESSIONS = os.environ.get("USE_DYNAMODB_SESSIONS", "false").lower() == "true"
+sessions = {}  # In-memory fallback for local dev
+state_tokens = {}  # In-memory fallback for local dev
+sessions_table = None
+state_table = None
 
-try:
-    sessions_table = dynamodb.Table(SESSIONS_TABLE)
-    state_table = dynamodb.Table(STATE_TABLE)
-except Exception as e:
-    # Fallback for local development without DynamoDB
-    sessions_table = None
-    state_table = None
-    sessions = {}  # In-memory fallback
-    state_tokens = {}  # In-memory fallback
+if USE_DYNAMODB_SESSIONS:
+    dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
+    SESSIONS_TABLE = os.environ.get('DYNAMODB_SESSIONS_TABLE', 'samved-sessions')
+    STATE_TABLE = os.environ.get('DYNAMODB_STATE_TABLE', 'samved-state-tokens')
+    try:
+        sessions_table = dynamodb.Table(SESSIONS_TABLE)
+        state_table = dynamodb.Table(STATE_TABLE)
+    except Exception:
+        sessions_table = None
+        state_table = None
 
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
@@ -59,11 +63,16 @@ SCOPES = "openid email profile"
 REDIRECT_URI = f"{APP_BASE_URL}/auth/google/callback"
 
 
+def _is_localhost() -> bool:
+    """True when running against localhost (cookie and CORS use local settings)."""
+    return "localhost" in (APP_BASE_URL or "") or "localhost" in (FRONTEND_BASE_URL or "")
+
+
 # ============================================================================
 # DynamoDB Session Management Functions
 # ============================================================================
 
-def get_session(session_id: str) -> dict | None:
+def get_session(session_id: str) -> Optional[dict]:
     """Get session from DynamoDB."""
     if not sessions_table:
         # Fallback to in-memory for local development
@@ -696,17 +705,32 @@ def google_callback():
         response = make_response(redirect(f"{FRONTEND_BASE_URL}?auth=success"))
         
         # Set HTTP-only cookie with session ID
-        # PRODUCTION: Cookie settings for samved.ai
-        response.set_cookie(
-            "session_id",
-            session_id,
-            httponly=True,
-            secure=True,              # Required for HTTPS
-            samesite="None",          # Required for cross-origin cookies
-            path="/",
-            max_age=86400 * 7,        # 7 days
-            domain=".samved.ai"       # Shared across api.samved.ai and app.samved.ai
-        )
+        if _is_localhost():
+            # Local: domain=localhost so cookie is sent to both localhost:3000 and localhost:8000.
+            # SameSite=Lax: 3000 and 8000 are same-site (registrable domain localhost), so cookie is sent on fetch(8000/me, {credentials:'include'}).
+            # secure=False for http://localhost.
+            response.set_cookie(
+                "session_id",
+                session_id,
+                httponly=True,
+                secure=False,
+                samesite="Lax",
+                path="/",
+                max_age=86400 * 7,
+                domain="localhost",
+            )
+        else:
+            # Production (samved.ai): shared domain, secure, cross-origin
+            response.set_cookie(
+                "session_id",
+                session_id,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path="/",
+                max_age=86400 * 7,
+                domain=".samved.ai",
+            )
         
         return response
         
@@ -760,7 +784,10 @@ def get_user_info():
         log_auth_event("user_info_denied", session_id=session_id, details={"reason": "unauthorized"})
         response = make_response(response_obj)
         response.status_code = status_code
-        response.set_cookie("session_id", "", expires=0, path="/")
+        if _is_localhost():
+            response.set_cookie("session_id", "", expires=0, path="/", domain="localhost")
+        else:
+            response.set_cookie("session_id", "", expires=0, path="/", domain=".samved.ai")
         return response
     
     # User is authorized - return user info
@@ -840,17 +867,14 @@ def logout():
     # Create response
     response = jsonify({"message": "Logged out successfully"})
     
-    # Clear the cookie (match production settings)
-    response.set_cookie(
-        "session_id",
-        "",
-        expires=0,
-        httponly=True,
-        secure=True,
-        samesite="None",
-        path="/",
-        domain=".samved.ai"
-    )
+    # Clear the cookie (match how it was set: localhost vs production)
+    if _is_localhost():
+        response.set_cookie("session_id", "", expires=0, httponly=True, secure=False, samesite="Lax", path="/", domain="localhost")
+    else:
+        response.set_cookie(
+            "session_id", "", expires=0, httponly=True, secure=True,
+            samesite="None", path="/", domain=".samved.ai"
+        )
     
     return response, 200
 

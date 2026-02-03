@@ -1,15 +1,18 @@
 """
-AWS Lambda handler using Mangum WSGI adapter.
+AWS Lambda handler using Mangum with ASGI adapter.
 
 This file is the entry point for Lambda invocations.
-Mangum translates API Gateway events to WSGI requests for Flask.
+Mangum requires ASGI, so we wrap Flask (WSGI) with asgiref.
 """
 from mangum import Mangum
+from asgiref.wsgi import WsgiToAsgi
 from app import create_app
 
 # Create Flask app
-app = create_app()
+flask_app = create_app()
+
+# Wrap Flask (WSGI) to ASGI
+asgi_app = WsgiToAsgi(flask_app)
 
 # Create Lambda handler
-# lifespan="off" disables ASGI lifespan events (not needed for Flask/WSGI)
-handler = Mangum(app, lifespan="off")
+handler = Mangum(asgi_app, lifespan="off")

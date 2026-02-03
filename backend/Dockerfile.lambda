@@ -1,7 +1,7 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-# Install build dependencies for pyswisseph (C extension)
-RUN yum install -y gcc python3-devel
+# Install build dependencies for pyswisseph and numpy (C/C++ extensions)
+RUN yum install -y gcc gcc-c++ python3-devel
 
 # Copy and install Python dependencies
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/

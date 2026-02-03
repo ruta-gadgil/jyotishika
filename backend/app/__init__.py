@@ -12,7 +12,7 @@ project_root = backend_dir.parent
 load_dotenv(project_root / "local.env")  # Try local.env first
 load_dotenv(project_root / ".env")  # Then try .env (won't override if already set)
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, Response
 from .routes import bp
 from .auth import auth_bp
 from .db import init_db, check_db_connection
@@ -152,7 +152,20 @@ def create_app():
         
         app.logger.debug("Health check passed")
         return health, 200
-    
+
+    @app.get("/robots.txt")
+    def robots_txt():
+        """
+        robots.txt for early alpha.
+
+        Disallow all crawlers to avoid accidental indexing and reduce bot traffic.
+        """
+        lines = [
+            "User-agent: *",
+            "Disallow: /",
+        ]
+        return Response("\n".join(lines) + "\n", mimetype="text/plain")
+
     @app.get("/license")
     def license_info():
         """

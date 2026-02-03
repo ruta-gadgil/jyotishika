@@ -265,3 +265,11 @@ temp/
 *.se3
 ephe/
 backend/ephe/
+
+# SAM build artifacts and config with secrets
+.aws-sam/
+samconfig.toml
+
+# CloudFront config files (temporary)
+cloudfront-distribution-config.json
+s3-bucket-policy.json

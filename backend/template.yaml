@@ -33,6 +33,14 @@ Parameters:
     Default: https://app.samved.ai
 
 Resources:
+  HttpApiGateway:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50      # Max burst for all routes (alpha)
+        ThrottlingRateLimit: 100      # Steady-state RPS limit (alpha)
+
   # DynamoDB access policy
   SessionsTablePolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -64,11 +72,13 @@ Resources:
         ApiRoot:
           Type: HttpApi
           Properties:
+            ApiId: !Ref HttpApiGateway
             Path: /
             Method: ANY
         ApiProxy:
           Type: HttpApi
           Properties:
+            ApiId: !Ref HttpApiGateway
             Path: /{proxy+}
             Method: ANY
       Environment:
@@ -92,7 +102,7 @@ Resources:
 Outputs:
   ApiUrl:
     Description: API Gateway endpoint URL
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Value: !Sub "https://${HttpApiGateway}.execute-api.${AWS::Region}.amazonaws.com"
   FunctionArn:
     Description: Lambda function ARN
     Value: !GetAtt JyotishikaFunction.Arn
