@@ -200,6 +200,7 @@ $RECYCLE.BIN/
 # IDE files
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~

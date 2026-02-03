@@ -1,0 +1,23 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "samved-api"
+s3_prefix = "samved-api"
+region = "ap-south-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+resolve_image_repos = true
+
+# Parameters should be passed via one of these methods:
+# 1. GitHub Actions (CI/CD): via GitHub Secrets in .github/workflows/deploy.yml
+# 2. Local deployment: via --parameter-overrides flag:
+#    sam deploy --parameter-overrides \
+#      Environment="production" \
+#      DatabaseUrl="<your-database-url>" \
+#      GoogleClientId="<your-client-id>" \
+#      GoogleClientSecret="<your-client-secret>" \
+#      SecretKey="<your-secret-key>" \
+#      AllowedOrigins="https://app.samved.ai" \
+#      AppBaseUrl="https://api.samved.ai" \
+#      FrontendBaseUrl="https://app.samved.ai"
