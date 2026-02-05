@@ -385,7 +385,7 @@ class AnalysisNote(db.Model):
     )
     
     # Relationships
-    chart = db.relationship('Chart', backref=db.backref('notes', lazy=True))
+    chart = db.relationship('Chart', backref=db.backref('notes', lazy=True, cascade='all, delete-orphan'))
     
     def __repr__(self):
         return f"<AnalysisNote {self.id} chart={self.chart_id} title='{self.title[:30]}...'>"
