@@ -39,7 +39,7 @@ jobs:
       - name: Run smoke tests
         working-directory: backend
         run: |
-          pytest tests/test_smoke.py -v
+          PYTHONPATH=. pytest tests/test_smoke.py -v
         env:
           EPHE_PATH: ./ephe
           TESTING: true
