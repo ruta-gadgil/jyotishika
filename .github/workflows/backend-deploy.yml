@@ -94,6 +94,7 @@ jobs:
             --stack-name samved-api \
             --region ${{ env.AWS_REGION }} \
             --capabilities CAPABILITY_IAM \
+            --resolve-image-repos \
             --parameter-overrides \
               Environment=${{ github.event.inputs.environment || 'production' }} \
               DatabaseUrl="${{ secrets.DATABASE_URL }}" \
