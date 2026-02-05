@@ -95,6 +95,7 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --capabilities CAPABILITY_IAM \
             --resolve-image-repos \
+            --resolve-s3 \
             --parameter-overrides \
               Environment=${{ github.event.inputs.environment || 'production' }} \
               DatabaseUrl="${{ secrets.DATABASE_URL }}" \
