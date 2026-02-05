@@ -260,12 +260,13 @@ node_modules/
 tmp/
 temp/
 
-# Ephemeris data files
-*.se1
+# Ephemeris data files (now included in repo for CI/CD)
+# *.se1
 *.se2
 *.se3
-ephe/
-backend/ephe/
+# Ephemeris files now included in repo for CI/CD (only 476KB)
+# ephe/
+# backend/ephe/
 
 # SAM build artifacts and config with secrets
 .aws-sam/
