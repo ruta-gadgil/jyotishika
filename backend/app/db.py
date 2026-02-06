@@ -803,12 +803,28 @@ def update_profile(profile_id, user_id, updates):
         for db_key, value in db_updates.items():
             setattr(profile, db_key, value)
         
-        # Step 6: Invalidate chart cache if chart-affecting fields changed
+        # Step 6: Recalculate chart if chart-affecting fields changed
+        # Instead of deleting the chart, we recalculate and update it in place.
+        # This preserves the chart_id and prevents analysis notes from being cascade-deleted.
         if chart_invalidation_needed:
             chart = Chart.query.filter_by(profile_id=profile_id).first()
             if chart:
-                db.session.delete(chart)
-                current_app.logger.info(f"Deleted cached chart for profile: {profile_id} (chart-affecting fields updated)")
+                try:
+                    # Import here to avoid circular dependency
+                    from .chart_calc import calculate_chart_for_profile
+                    
+                    # Recalculate chart with updated profile data
+                    # Note: profile object in memory already has the new values (applied in Step 5)
+                    chart_data = calculate_chart_for_profile(profile)
+                    
+                    # Update chart in place (preserves chart_id and notes)
+                    saved_chart = save_chart(profile_id, chart_data)
+                    current_app.logger.info(f"Recalculated and updated chart for profile: {profile_id} (chart-affecting fields updated, chart_id preserved: {saved_chart.id})")
+                except Exception as calc_error:
+                    # If chart calculation fails, log error but don't fail the profile update
+                    # The chart will be recalculated on next view
+                    current_app.logger.error(f"Failed to recalculate chart during profile update: {str(calc_error)}")
+                    current_app.logger.info(f"Profile update will proceed; chart will be recalculated on next view")
         
         # Step 7: Commit transaction
         try:
