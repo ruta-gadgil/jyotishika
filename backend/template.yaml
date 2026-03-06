@@ -40,6 +40,16 @@ Resources:
       DefaultRouteSettings:
         ThrottlingBurstLimit: 50      # Max burst for all routes (alpha)
         ThrottlingRateLimit: 100      # Steady-state RPS limit (alpha)
+      # Tighter per-route throttling for geocoding endpoints.
+      # These call an external API (Nominatim) which has a strict 1 req/sec policy.
+      # Limiting here prevents abuse before Lambda is even invoked, at no extra cost.
+      RouteSettings:
+        "GET /cities":
+          ThrottlingBurstLimit: 10    # Max burst: 10 simultaneous requests
+          ThrottlingRateLimit: 5      # Steady-state: 5 requests per second
+        "POST /geocode":
+          ThrottlingBurstLimit: 5     # Lower burst: geocode is called less frequently
+          ThrottlingRateLimit: 2      # Steady-state: 2 requests per second
 
   # DynamoDB access policy
   SessionsTablePolicy:
