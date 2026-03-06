@@ -15,6 +15,7 @@ load_dotenv(project_root / ".env")  # Then try .env (won't override if already s
 from flask import Flask, jsonify, Response
 from .routes import bp
 from .auth import auth_bp
+from .geocoding_routes import geocoding_bp
 from .db import init_db, check_db_connection
 from .logging_config import configure_logging
 import sys
@@ -118,6 +119,7 @@ def create_app():
 
     app.register_blueprint(bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(geocoding_bp)
 
     @app.get("/healthz")
     def healthz():

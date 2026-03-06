@@ -223,3 +223,14 @@ class AnalysisNoteUpdate(BaseModel):
         if not v:
             raise ValueError("title cannot be empty or only whitespace")
         return v
+
+
+# ---------------- Geocoding API Schemas ----------------
+
+class GeocodeRequest(BaseModel):
+    """
+    Schema for geocoding a city name to lat/lng coordinates.
+    
+    Used by POST /geocode endpoint.
+    """
+    city: str = Field(min_length=3, max_length=200)
