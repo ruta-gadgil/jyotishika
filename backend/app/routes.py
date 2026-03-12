@@ -13,6 +13,7 @@ from .astro.utils import (
     get_nakshatra_and_charan,
     get_navamsha_info,
 )
+from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS, COMBUSTION_THRESHOLDS
 from .astro.dasha import calculate_vimshottari_timeline
 from datetime import datetime
 import logging
@@ -102,160 +103,28 @@ def chart():
         
         # Step 3: Calculate chart (cache miss)
         current_app.logger.info(f"💫 Cache miss - calculating chart for profile: {profile.id}")
-        
-        dt_utc = to_utc(payload.datetime, payload.tz, payload.utcOffsetMinutes, payload.latitude, payload.longitude)
-        jd_ut = julian_day_utc(dt_utc)
 
-        # initialize (idempotent ok)
-        effective_ayanamsha = payload.ayanamsha or current_app.config["AYANAMSHA"]
-        effective_house_system = payload.houseSystem or current_app.config["HOUSE_SYSTEM"]
-        init_ephemeris(current_app.config["EPHE_PATH"], effective_ayanamsha)
-
-        asc_long, cusps, angles = ascendant_and_houses(jd_ut, payload.latitude, payload.longitude, effective_house_system)
-        asc_sign = sign_index(asc_long)
-        
-        # Calculate nakshatra, charan, and navamsha for ascendant
-        asc_nak_name, asc_nak_index_1, asc_charan_1to4 = get_nakshatra_and_charan(asc_long)
-        asc_nav_info = get_navamsha_info(asc_long)
-
-        planets = compute_planets(jd_ut, payload.nodeType)
-        current_app.logger.debug(f"Computed planets for asc_sign: {asc_sign}")
-
-        # decorate with sign/house if requested and round for frontend
-        result_planets = []
-        for p in planets:
-            rec = dict(p)
-            # Round values for frontend display
-            rec["longitude"] = round(p["longitude"], 2)  # 2 decimal places for longitude
-            rec["speed"] = round(p["speed"], 4)          # 4 decimal places for speed
-            
-            # Always include nakshatra, charan, and navamsha details (sidereal longitudes)
-            nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
-            nav_info = get_navamsha_info(p["longitude"])  # contains sign/signIndex/ordinal/degreeInNavamsha and mapping
-            rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
-            rec["charan"] = charan_1to4
-            rec["navamsha"] = {
-                "sign": nav_info["sign"],
-                "signIndex": nav_info["signIndex"],
-                "ordinal": nav_info["ordinal"],
-                "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
-            }
-
-            if payload.include.signsForEachPlanet:
-                rec["signIndex"] = sign_index(p["longitude"])
-            if effective_house_system == "WHOLE_SIGN" and payload.include.housesForEachPlanet:
-                rec["house"] = house_from_sign(rec.get("signIndex", sign_index(p["longitude"])), asc_sign)
-            elif payload.include.housesForEachPlanet and cusps:
-                # For Placidus/Equal, we could call swe.house_pos for accuracy
-                # For now, we'll use a simple angular separation approach
-                planet_long = p["longitude"]  # Use original precision for calculations
-                house_num = 1
-                for i, cusp in enumerate(cusps):
-                    if i < len(cusps) - 1:
-                        next_cusp = cusps[i + 1]
-                    else:
-                        # Last house (12th house) - wrap around to first cusp + 360
-                        next_cusp = cusps[0] + 360
-                    
-                    if cusp <= planet_long < next_cusp or (i == len(cusps) - 1 and planet_long >= cusp):
-                        house_num = i + 1
-                        break
-                rec["house"] = house_num
-            result_planets.append(rec)
-
-        out = {
-            "metadata": {
-                "system": "sidereal",
-                "ayanamsha": effective_ayanamsha,
-                "houseSystem": effective_house_system,
-                "nodeType": payload.nodeType,
-                "datetimeInput": payload.datetime,
-                "tzApplied": payload.tz if payload.tz else format_utc_offset(payload.utcOffsetMinutes or 0),
-                "datetimeUTC": dt_utc.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
-            },
-            "ascendant": {
-                "longitude": round(asc_long, 2),  # Round ascendant longitude for frontend
-                "signIndex": asc_sign,
-                "house": 1,
-                "nakshatra": {"name": asc_nak_name, "index": asc_nak_index_1},
-                "charan": asc_charan_1to4,
-                "navamsha": {
-                    "sign": asc_nav_info["sign"],
-                    "signIndex": asc_nav_info["signIndex"],
-                    "ordinal": asc_nav_info["ordinal"],
-                    "degreeInNavamsha": round(asc_nav_info["degreeInNavamsha"], 4),
-                }
-            },
-            "planets": result_planets
-        }
-
-        if payload.include.houseCusps:
-            if effective_house_system == "WHOLE_SIGN":
-                # Build whole-sign cusps from asc_sign and round for frontend
-                out["houseCusps"] = [round(c, 2) for c in compute_whole_sign_cusps(asc_sign)]
-            else:
-                # Round house cusps for frontend
-                out["houseCusps"] = [round(c, 2) for c in cusps] if cusps else None
-
-        # Always include Bhav Chalit (Sripati Padhati) data
-        # Sripati system divides the ecliptic into 4 quadrants using the four angles,
-        # then trisects each quadrant to create 12 houses
-        sripati_cusps = compute_sripati_cusps(
-            angles["asc"], 
-            angles["ic"], 
-            angles["dsc"], 
-            angles["mc"]
-        )
-        
-        # Calculate planet placements in Bhav Chalit houses
-        bhav_chalit_planets = []
-        planet_placements = []
-        for p in planets:
-            planet_house = house_from_cusps(p["longitude"], sripati_cusps)
-            bhav_chalit_planets.append({
-                "planet": p["planet"],
-                "house": planet_house
-            })
-            planet_placements.append({
-                "planet": p["planet"],
-                "longitude": round(p["longitude"], 2),
-                "house": planet_house
-            })
-        
-        # Log consolidated planet placements
-        current_app.logger.debug("Bhav Chalit planet placements", extra={
-            "bhav_chalit_planets": planet_placements
-        })
-        
-        out["bhavChalit"] = {
-            "system": "SRIPATI",
-            "ascendant": {
-                "longitude": round(asc_long, 2),
-                "house": 1  # Ascendant always defines house 1 in Bhav Chalit
-            },
-            "houseCusps": [round(c, 2) for c in sripati_cusps],  # Bhava Sandhis (house boundaries)
-            "planets": bhav_chalit_planets
-        }
+        # Use shared chart calculation helper so POST and lazy paths match
+        from .chart_calc import calculate_chart_for_profile
+        chart_data = calculate_chart_for_profile(profile)
 
         # Step 4: Save calculated chart to database (cache for future requests)
-        chart_data = {
-            "ascendant": out["ascendant"],
-            "planets": out["planets"],
-            "houseCusps": out.get("houseCusps"),
-            "bhavChalit": out["bhavChalit"],
-            "metadata": out["metadata"]
-        }
-        
         saved_chart = save_chart(profile.id, chart_data)
         current_app.logger.info(f"💾 Chart saved to cache for profile: {profile.id}")
-        
+
         # Step 5: Return chart data with profile information
         response_data = {
             "profile_id": str(profile.id),
             "chart_id": str(saved_chart.id) if saved_chart else None,
             "profile": profile.to_dict(),
-            **out
+            "metadata": chart_data["metadata"],
+            "ascendant": chart_data["ascendant"],
+            "planets": chart_data["planets"],
+            "bhavChalit": chart_data["bhavChalit"],
         }
+
+        if chart_data["houseCusps"]:
+            response_data["houseCusps"] = chart_data["houseCusps"]
 
         # Log successful response
         current_app.logger.info(f"🎉 Chart calculation successful")

@@ -302,6 +302,7 @@ class Chart(db.Model):
         default=dt.utcnow,
         server_default=func.current_timestamp()
     )
+    schema_version = db.Column(db.Integer, nullable=True)
     
     # Relationships
     profile = db.relationship('Profile', back_populates='chart')

@@ -15,6 +15,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from .models import db
 
 
+CURRENT_CHART_SCHEMA_VERSION = 2
+
+
 def init_db(app):
     """
     Initialize database connection with the Flask app.
@@ -529,11 +532,19 @@ def get_cached_chart(profile_id):
         chart = Chart.query.filter_by(profile_id=profile_id).first()
         
         if chart:
-            current_app.logger.info(f"Cache hit: chart found for profile {profile_id}")
+            if chart.schema_version == CURRENT_CHART_SCHEMA_VERSION:
+                current_app.logger.info(
+                    f"Cache hit: chart v{chart.schema_version} for profile {profile_id}"
+                )
+                return chart
+            current_app.logger.info(
+                f"Cache stale (v{chart.schema_version} → v{CURRENT_CHART_SCHEMA_VERSION}) "
+                f"for profile {profile_id} - will recalculate"
+            )
         else:
             current_app.logger.info(f"Cache miss: no chart for profile {profile_id}")
         
-        return chart
+        return None
         
     except SQLAlchemyError as e:
         current_app.logger.error(f"Database error in get_cached_chart: {str(e)}")
@@ -579,6 +590,7 @@ def save_chart(profile_id, chart_data):
             chart.house_cusps = chart_data.get('houseCusps')
             chart.bhav_chalit_data = chart_data['bhavChalit']
             chart.chart_metadata = chart_data['metadata']
+            chart.schema_version = CURRENT_CHART_SCHEMA_VERSION
             current_app.logger.info(f"Updated cached chart for profile: {profile_id}")
         else:
             # Create new chart
@@ -588,7 +600,8 @@ def save_chart(profile_id, chart_data):
                 planets_data=chart_data['planets'],
                 house_cusps=chart_data.get('houseCusps'),
                 bhav_chalit_data=chart_data['bhavChalit'],
-                chart_metadata=chart_data['metadata']
+                chart_metadata=chart_data['metadata'],
+                schema_version=CURRENT_CHART_SCHEMA_VERSION,
             )
             db.session.add(chart)
             current_app.logger.info(f"Created new cached chart for profile: {profile_id}")
@@ -611,6 +624,7 @@ def save_chart(profile_id, chart_data):
                 chart.house_cusps = chart_data.get('houseCusps')
                 chart.bhav_chalit_data = chart_data['bhavChalit']
                 chart.chart_metadata = chart_data['metadata']
+                chart.schema_version = CURRENT_CHART_SCHEMA_VERSION
                 db.session.commit()
                 current_app.logger.info(f"Retrieved and updated existing chart after IntegrityError: {chart.id}")
                 return chart
