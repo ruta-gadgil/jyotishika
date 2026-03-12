@@ -72,7 +72,7 @@ def compute_planets(jd_ut: float, nodeType: str = "MEAN"):
     
     out = []
     
-    # Calculate Rahu (North Node)
+    # Calculate Rahu (North Node) at current and previous day (for speed/acceleration)
     node_body = swe.MEAN_NODE if nodeType == "MEAN" else swe.TRUE_NODE
     
     try:
@@ -80,9 +80,14 @@ def compute_planets(jd_ut: float, nodeType: str = "MEAN"):
         # Swiss Ephemeris with FLG_SPEED returns:
         # result[0] = (longitude, latitude, distance, speed_long, speed_lat, speed_dist)
         # result[1] = return flag
-        rahu_long = float(result[0][0])  # longitude in degrees
+        rahu_long = float(result[0][0])   # longitude in degrees
+        rahu_lat = float(result[0][1])    # latitude in degrees
         rahu_speed = float(result[0][3])  # speed in degrees per day
         rahu_long = norm360(rahu_long)
+
+        # Previous day's node speed for acceleration/deceleration
+        prev_result = swe.calc_ut(jd_ut - 1.0, node_body, SEFLAGS)
+        rahu_prev_speed = float(prev_result[0][3])
     except Exception as e:
         raise RuntimeError(f"Failed to calculate Rahu/Ketu position: {e}")
 
@@ -90,19 +95,31 @@ def compute_planets(jd_ut: float, nodeType: str = "MEAN"):
     for name, body in PLANETS:
         try:
             if name == "Rahu":
-                lng, spd = rahu_long, rahu_speed
+                lng = rahu_long
+                lat = rahu_lat
+                spd = rahu_speed
+                prev_spd = rahu_prev_speed
                 
             elif name == "Ketu":
                 # Ketu is always 180° opposite to Rahu
                 lng = norm360(rahu_long + 180.0)
-                spd = rahu_speed  # Ketu has same speed as Rahu
+                # Nodes lie on the ecliptic, latitude is effectively 0
+                lat = 0.0
+                # Ketu has same speed characteristics as Rahu
+                spd = rahu_speed
+                prev_spd = rahu_prev_speed
                 
             else:
                 # Calculate regular planet
                 result = swe.calc_ut(jd_ut, body, SEFLAGS)
-                lng = float(result[0][0])  # longitude in degrees
-                spd = float(result[0][3])  # speed in degrees per day
+                lng = float(result[0][0])   # longitude in degrees
+                lat = float(result[0][1])   # latitude in degrees
+                spd = float(result[0][3])   # speed in degrees per day
                 lng = norm360(lng)
+
+                # Previous day's speed for acceleration/deceleration
+                prev_result = swe.calc_ut(jd_ut - 1.0, body, SEFLAGS)
+                prev_spd = float(prev_result[0][3])
             
             # Apply VEDANJANAM offset if needed
             # When VEDANJANAM is used, planets are computed in Lahiri sidereal mode
@@ -120,7 +137,9 @@ def compute_planets(jd_ut: float, nodeType: str = "MEAN"):
             out.append({
                 "planet": name,
                 "longitude": lng,
+                "latitude": lat,
                 "speed": spd,
+                "prevSpeed": prev_spd,
                 "retrograde": is_retrograde
             })
             

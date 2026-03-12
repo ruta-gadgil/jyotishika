@@ -24,6 +24,7 @@ from .astro.utils import (
     get_nakshatra_and_charan,
     get_navamsha_info,
 )
+from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS, COMBUSTION_THRESHOLDS
 
 
 def calculate_chart_for_profile(profile):
@@ -72,14 +73,53 @@ def calculate_chart_for_profile(profile):
     
     # Calculate planets
     planets = compute_planets(jd_ut, profile.node_type)
-    
-    # Decorate planets with additional data
+
+    # Extract Sun's longitude once for combustion calculations
+    sun_longitude = next((p["longitude"] for p in planets if p["planet"] == "Sun"), None)
+
+    # Decorate planets with additional data (mirror /chart POST logic)
     result_planets = []
     for p in planets:
         rec = dict(p)
+
+        # Round core kinematics
         rec["longitude"] = round(p["longitude"], 2)
         rec["speed"] = round(p["speed"], 4)
-        
+        if "latitude" in p:
+            rec["latitude"] = round(p["latitude"], 4)
+
+        # prevSpeed is internal-only; keep for derived metrics, then drop
+        prev_speed = rec.pop("prevSpeed", None)
+
+        # Derived motion metrics
+        mean_speed = PLANET_MEAN_SPEEDS.get(p["planet"])
+        if mean_speed is not None:
+            rec["meanSpeed"] = round(mean_speed, 4)
+
+        if prev_speed is not None:
+            acceleration = p["speed"] - prev_speed
+            rec["acceleration"] = round(acceleration, 6)
+            rec["isAccelerating"] = abs(p["speed"]) > abs(prev_speed)
+
+        threshold = STATIONARY_THRESHOLDS.get(p["planet"])
+        if threshold is not None:
+            rec["isStationary"] = abs(p["speed"]) <= threshold
+        else:
+            rec["isStationary"] = False
+
+        # Combustion metrics relative to Sun
+        combust_thresholds = COMBUSTION_THRESHOLDS.get(p["planet"])
+        if combust_thresholds is not None and sun_longitude is not None and p["planet"] != "Sun":
+            diff = abs(p["longitude"] - sun_longitude)
+            sun_distance = round(min(diff, 360.0 - diff), 4)
+            direction = "retrograde" if p["retrograde"] else "direct"
+            rec["sunDistance"] = sun_distance
+            rec["isCombust"] = sun_distance <= combust_thresholds[direction]
+        else:
+            rec["sunDistance"] = None
+            rec["isCombust"] = False
+
+        # Always include nakshatra, charan, and navamsha details (sidereal longitudes)
         nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
         nav_info = get_navamsha_info(p["longitude"])
         rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
@@ -90,7 +130,8 @@ def calculate_chart_for_profile(profile):
             "ordinal": nav_info["ordinal"],
             "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
         }
-        
+
+        # Sign and house placement
         rec["signIndex"] = sign_index(p["longitude"])
         if profile.house_system == "WHOLE_SIGN":
             rec["house"] = house_from_sign(rec["signIndex"], asc_sign)
@@ -102,12 +143,12 @@ def calculate_chart_for_profile(profile):
                     next_cusp = cusps[i + 1]
                 else:
                     next_cusp = cusps[0] + 360
-                
+
                 if cusp <= planet_long < next_cusp or (i == len(cusps) - 1 and planet_long >= cusp):
                     house_num = i + 1
                     break
             rec["house"] = house_num
-        
+
         result_planets.append(rec)
     
     # Calculate Bhav Chalit
