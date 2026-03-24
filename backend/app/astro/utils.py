@@ -154,6 +154,29 @@ def format_utc_offset(offset_minutes: int) -> str:
 
 # ------------------------- Vedic computations -------------------------
 
+def get_longitude_metadata(longitude: float) -> Dict[str, object]:
+    """Return a dict of sign and nakshatra details for a given sidereal longitude.
+
+    Used to enrich bhavaMadhyas in the chart response.
+    Longitude is expressed as degrees within the sign (0..30) so the frontend
+    translation engine can resolve names from indices.
+
+    Returns dict with keys:
+      - longitude: degrees within the sign, rounded to 2 decimal places (0..30)
+      - signIndex: 0..11
+      - nakshatraIndex: 1..27
+      - charan: 1..4
+    """
+    sign_idx = sign_index(longitude)
+    _, nak_idx_1, charan = get_nakshatra_and_charan(longitude)
+    return {
+        "longitude": round(longitude % 30, 2),
+        "signIndex": sign_idx,
+        "nakshatraIndex": nak_idx_1,
+        "charan": charan,
+    }
+
+
 def get_nakshatra_and_charan(longitude_sidereal: float) -> Tuple[str, int, int]:
     """Return (nakshatra_name, nakshatra_index_1based, charan_1to4) from sidereal longitude.
 

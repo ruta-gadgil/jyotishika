@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .models import db
 
 
-CURRENT_CHART_SCHEMA_VERSION = 2
+CURRENT_CHART_SCHEMA_VERSION = 3
 
 
 def init_db(app):

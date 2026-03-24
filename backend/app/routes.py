@@ -96,9 +96,6 @@ def chart():
                 "bhavChalit": cached_chart.bhav_chalit_data
             }
             
-            if cached_chart.house_cusps:
-                response_data["houseCusps"] = cached_chart.house_cusps
-            
             return jsonify(response_data), 200
         
         # Step 3: Calculate chart (cache miss)
@@ -122,9 +119,6 @@ def chart():
             "planets": chart_data["planets"],
             "bhavChalit": chart_data["bhavChalit"],
         }
-
-        if chart_data["houseCusps"]:
-            response_data["houseCusps"] = chart_data["houseCusps"]
 
         # Log successful response
         current_app.logger.info(f"🎉 Chart calculation successful")
@@ -194,9 +188,6 @@ def get_chart_by_profile(profile_id):
                 "bhavChalit": cached_chart.bhav_chalit_data
             }
             
-            if cached_chart.house_cusps:
-                response_data["houseCusps"] = cached_chart.house_cusps
-            
             return jsonify(response_data), 200
         
         # Step 3: Chart not cached - recalculate
@@ -220,9 +211,6 @@ def get_chart_by_profile(profile_id):
             "planets": chart_data["planets"],
             "bhavChalit": chart_data["bhavChalit"]
         }
-        
-        if chart_data["houseCusps"]:
-            response_data["houseCusps"] = chart_data["houseCusps"]
         
         current_app.logger.info(f"🎉 Chart retrieval successful")
         return jsonify(response_data), 200
