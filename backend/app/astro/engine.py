@@ -305,5 +305,5 @@ def compute_sripati_cusps(asc: float, ic: float, dsc: float, mc: float):
             "sandhis": [{"sandhi": f"{i+1}/{(i%12)+1}", "longitude": round(s, 2)} for i, s in enumerate(sandhis)]
         }
     })
-    
-    return sandhis
+
+    return {"madhyas": madhya_list, "sandhis": sandhis}

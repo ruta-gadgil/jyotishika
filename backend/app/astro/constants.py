@@ -79,6 +79,8 @@ NAKSHATRA_NAMES = [
     "Purva Bhadrapada", "Uttara Bhadrapada", "Revati",
 ]
 
+
+
 # Sign element indices for navamsha calculation (0=Aries ... 11=Pisces)
 FIRE_SIGNS = {0, 4, 8}    # Aries, Leo, Sagittarius
 EARTH_SIGNS = {1, 5, 9}   # Taurus, Virgo, Capricorn

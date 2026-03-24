@@ -12,7 +12,6 @@ from .astro.engine import (
     julian_day_utc,
     ascendant_and_houses,
     compute_planets,
-    compute_whole_sign_cusps,
     compute_sripati_cusps,
 )
 from .astro.utils import (
@@ -23,6 +22,7 @@ from .astro.utils import (
     format_utc_offset,
     get_nakshatra_and_charan,
     get_navamsha_info,
+    get_longitude_metadata,
 )
 from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS, COMBUSTION_THRESHOLDS
 
@@ -152,16 +152,18 @@ def calculate_chart_for_profile(profile):
         result_planets.append(rec)
     
     # Calculate Bhav Chalit
-    sripati_cusps = compute_sripati_cusps(
+    sripati_result = compute_sripati_cusps(
         angles["asc"],
         angles["ic"],
         angles["dsc"],
         angles["mc"]
     )
-    
+    sripati_madhyas = sripati_result["madhyas"]  # centers of each bhava (house cusps)
+    sripati_sandhis = sripati_result["sandhis"]  # boundaries between bhavas
+
     bhav_chalit_planets = []
     for p in planets:
-        planet_house = house_from_cusps(p["longitude"], sripati_cusps)
+        planet_house = house_from_cusps(p["longitude"], sripati_sandhis)
         bhav_chalit_planets.append({
             "planet": p["planet"],
             "house": planet_house
@@ -185,18 +187,22 @@ def calculate_chart_for_profile(profile):
     bhav_chalit_data = {
         "system": "SRIPATI",
         "ascendant": {
-            "longitude": round(asc_long, 2),
+            "longitude": round(asc_long % 30, 2),
+            "signIndex": asc_sign,
             "house": 1
         },
-        "houseCusps": [round(c, 2) for c in sripati_cusps],
+        "bhavaMadhyas": [get_longitude_metadata(c) for c in sripati_madhyas],
+        "bhavaSandhis": [
+            {
+                "start": round(sripati_sandhis[(i - 1) % 12] % 30, 2),
+                "startSignIndex": sign_index(sripati_sandhis[(i - 1) % 12]),
+                "end": round(sripati_sandhis[i] % 30, 2),
+                "endSignIndex": sign_index(sripati_sandhis[i]),
+            }
+            for i in range(12)
+        ],
         "planets": bhav_chalit_planets
     }
-    
-    house_cusps_data = None
-    if profile.house_system == "WHOLE_SIGN":
-        house_cusps_data = [round(c, 2) for c in compute_whole_sign_cusps(asc_sign)]
-    elif cusps:
-        house_cusps_data = [round(c, 2) for c in cusps]
     
     metadata = {
         "system": "sidereal",
@@ -212,7 +218,6 @@ def calculate_chart_for_profile(profile):
     chart_data = {
         "ascendant": ascendant_data,
         "planets": result_planets,
-        "houseCusps": house_cusps_data,
         "bhavChalit": bhav_chalit_data,
         "metadata": metadata
     }
