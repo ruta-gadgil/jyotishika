@@ -223,3 +223,131 @@ def calculate_chart_for_profile(profile):
     }
     
     return chart_data
+
+
+def calculate_transit_for_profile(profile):
+    """
+    Calculate current planetary transit positions relative to natal ascendant.
+
+    Uses the current UTC datetime for planet positions but the natal ascendant
+    (from profile birth data) for house placement.
+
+    Returns:
+        dict with keys: ascendant (natal), planets (current), metadata
+    """
+    from datetime import datetime, timezone
+
+    dt_utc = to_utc(
+        profile.datetime,
+        profile.tz,
+        profile.utc_offset_minutes,
+        profile.latitude,
+        profile.longitude
+    )
+    natal_jd = julian_day_utc(dt_utc)
+
+    init_ephemeris(current_app.config["EPHE_PATH"], profile.ayanamsha)
+
+    asc_long, cusps, _ = ascendant_and_houses(
+        natal_jd,
+        profile.latitude,
+        profile.longitude,
+        profile.house_system
+    )
+    asc_sign = sign_index(asc_long)
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_jd = julian_day_utc(now_utc)
+    transit_planets_raw = compute_planets(now_jd, profile.node_type)
+
+    sun_longitude = next((p["longitude"] for p in transit_planets_raw if p["planet"] == "Sun"), None)
+
+    result_planets = []
+    for p in transit_planets_raw:
+        rec = dict(p)
+        rec["longitude"] = round(p["longitude"], 2)
+        rec["speed"] = round(p["speed"], 4)
+        if "latitude" in p:
+            rec["latitude"] = round(p["latitude"], 4)
+
+        prev_speed = rec.pop("prevSpeed", None)
+
+        mean_speed = PLANET_MEAN_SPEEDS.get(p["planet"])
+        if mean_speed is not None:
+            rec["meanSpeed"] = round(mean_speed, 4)
+
+        if prev_speed is not None:
+            acceleration = p["speed"] - prev_speed
+            rec["acceleration"] = round(acceleration, 6)
+            rec["isAccelerating"] = abs(p["speed"]) > abs(prev_speed)
+
+        threshold = STATIONARY_THRESHOLDS.get(p["planet"])
+        rec["isStationary"] = abs(p["speed"]) <= threshold if threshold is not None else False
+
+        combust_thresholds = COMBUSTION_THRESHOLDS.get(p["planet"])
+        if combust_thresholds is not None and sun_longitude is not None and p["planet"] != "Sun":
+            diff = abs(p["longitude"] - sun_longitude)
+            sun_distance = round(min(diff, 360.0 - diff), 4)
+            direction = "retrograde" if p["retrograde"] else "direct"
+            rec["sunDistance"] = sun_distance
+            rec["isCombust"] = sun_distance <= combust_thresholds[direction]
+        else:
+            rec["sunDistance"] = None
+            rec["isCombust"] = False
+
+        nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
+        nav_info = get_navamsha_info(p["longitude"])
+        rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
+        rec["charan"] = charan_1to4
+        rec["navamsha"] = {
+            "sign": nav_info["sign"],
+            "signIndex": nav_info["signIndex"],
+            "ordinal": nav_info["ordinal"],
+            "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
+        }
+
+        rec["signIndex"] = sign_index(p["longitude"])
+        if profile.house_system == "WHOLE_SIGN":
+            rec["house"] = house_from_sign(rec["signIndex"], asc_sign)
+        elif cusps:
+            planet_long = p["longitude"]
+            house_num = 1
+            for i, cusp in enumerate(cusps):
+                next_cusp = cusps[i + 1] if i < len(cusps) - 1 else cusps[0] + 360
+                if cusp <= planet_long < next_cusp or (i == len(cusps) - 1 and planet_long >= cusp):
+                    house_num = i + 1
+                    break
+            rec["house"] = house_num
+
+        result_planets.append(rec)
+
+    asc_nak_name, asc_nak_index_1, asc_charan_1to4 = get_nakshatra_and_charan(asc_long)
+    asc_nav_info = get_navamsha_info(asc_long)
+
+    ascendant_data = {
+        "longitude": round(asc_long, 2),
+        "signIndex": asc_sign,
+        "house": 1,
+        "nakshatra": {"name": asc_nak_name, "index": asc_nak_index_1},
+        "charan": asc_charan_1to4,
+        "navamsha": {
+            "sign": asc_nav_info["sign"],
+            "signIndex": asc_nav_info["signIndex"],
+            "ordinal": asc_nav_info["ordinal"],
+            "degreeInNavamsha": round(asc_nav_info["degreeInNavamsha"], 4),
+        }
+    }
+
+    metadata = {
+        "system": "sidereal",
+        "ayanamsha": profile.ayanamsha,
+        "houseSystem": profile.house_system,
+        "nodeType": profile.node_type,
+        "transitDatetimeUTC": now_utc.isoformat(timespec="seconds") + "Z"
+    }
+
+    return {
+        "ascendant": ascendant_data,
+        "planets": result_planets,
+        "metadata": metadata
+    }

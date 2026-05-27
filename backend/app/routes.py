@@ -226,6 +226,54 @@ def get_chart_by_profile(profile_id):
         }), 500
 
 
+@bp.route("/transit/<profile_id>", methods=["GET"])
+def get_transit_by_profile(profile_id):
+    """
+    Get current transit chart for a profile.
+
+    Transit planets are computed at the current UTC time and placed in
+    houses relative to the natal ascendant. Not cached.
+    """
+    session_data = get_current_user()
+    if isinstance(session_data, tuple):
+        return session_data
+
+    from flask import g
+    user = g.current_user
+
+    current_app.logger.info(f"🔵 GET /transit/{profile_id} - User ID: {user.id}")
+
+    try:
+        from .db import get_user_profile
+        from .chart_calc import calculate_transit_for_profile
+
+        profile, error_response = get_user_profile(profile_id, user.id)
+        if error_response:
+            return error_response
+
+        transit_data = calculate_transit_for_profile(profile)
+
+        response_data = {
+            "profile_id": str(profile.id),
+            "ascendant": transit_data["ascendant"],
+            "planets": transit_data["planets"],
+            "metadata": transit_data["metadata"],
+        }
+
+        current_app.logger.info(f"🎉 Transit calculation successful for profile: {profile.id}")
+        return jsonify(response_data), 200
+
+    except Exception as e:
+        current_app.logger.error(f"💥 Transit calculation error: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": {
+                "code": "CALCULATION_ERROR",
+                "message": "Failed to calculate transit chart",
+                "details": {"error": str(e)}
+            }
+        }), 500
+
+
 @bp.route("/dasha", methods=["POST"])
 def dasha():
     # AUTHENTICATION REQUIRED - Validate session and authorization
