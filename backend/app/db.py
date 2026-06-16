@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .models import db
 
 
-CURRENT_CHART_SCHEMA_VERSION = 3
+CURRENT_CHART_SCHEMA_VERSION = 4
 
 
 def init_db(app):
@@ -578,6 +578,7 @@ def save_chart(profile_id, chart_data):
     """
     from .models import Chart
     from sqlalchemy.exc import IntegrityError
+    from .chart_calc import chart_metadata_for_storage
     
     try:
         # Check if chart already exists
@@ -589,7 +590,7 @@ def save_chart(profile_id, chart_data):
             chart.planets_data = chart_data['planets']
             chart.house_cusps = chart_data.get('houseCusps')
             chart.bhav_chalit_data = chart_data['bhavChalit']
-            chart.chart_metadata = chart_data['metadata']
+            chart.chart_metadata = chart_metadata_for_storage(chart_data)
             chart.schema_version = CURRENT_CHART_SCHEMA_VERSION
             current_app.logger.info(f"Updated cached chart for profile: {profile_id}")
         else:
@@ -600,7 +601,7 @@ def save_chart(profile_id, chart_data):
                 planets_data=chart_data['planets'],
                 house_cusps=chart_data.get('houseCusps'),
                 bhav_chalit_data=chart_data['bhavChalit'],
-                chart_metadata=chart_data['metadata'],
+                chart_metadata=chart_metadata_for_storage(chart_data),
                 schema_version=CURRENT_CHART_SCHEMA_VERSION,
             )
             db.session.add(chart)
@@ -623,7 +624,7 @@ def save_chart(profile_id, chart_data):
                 chart.planets_data = chart_data['planets']
                 chart.house_cusps = chart_data.get('houseCusps')
                 chart.bhav_chalit_data = chart_data['bhavChalit']
-                chart.chart_metadata = chart_data['metadata']
+                chart.chart_metadata = chart_metadata_for_storage(chart_data)
                 chart.schema_version = CURRENT_CHART_SCHEMA_VERSION
                 db.session.commit()
                 current_app.logger.info(f"Retrieved and updated existing chart after IntegrityError: {chart.id}")
