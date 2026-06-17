@@ -90,3 +90,63 @@ WATER_SIGNS = {3, 7, 11}  # Cancer, Scorpio, Pisces
 # Geometric spans in degrees
 NAKSHATRA_SPAN_DEG = 360.0 / 27.0
 CHARAN_SPAN_DEG = NAKSHATRA_SPAN_DEG / 4.0  # 3°20'
+
+# Panchang constants (English canonical names — frontend translates)
+TITHI_NAMES = [
+    "Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami", "Shashthi",
+    "Saptami", "Ashtami", "Navami", "Dashami", "Ekadashi", "Dwadashi",
+    "Trayodashi", "Chaturdashi", "Purnima", "Pratipada", "Dwitiya", "Tritiya",
+    "Chaturthi", "Panchami", "Shashthi", "Saptami", "Ashtami", "Navami",
+    "Dashami", "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi", "Amavasya",
+]
+
+YOGA_NAMES = [
+    "Vishkumbha", "Priti", "Ayushman", "Saubhagya", "Shobhana", "Atiganda",
+    "Sukarma", "Dhriti", "Shula", "Ganda", "Vriddhi", "Dhruva", "Vyaghata",
+    "Harshana", "Vajra", "Siddhi", "Vyatipata", "Variyan", "Parigha", "Shiva",
+    "Siddha", "Sadhya", "Shubha", "Shukla", "Brahma", "Indra", "Vaidhriti",
+]
+
+LUNAR_MONTH_NAMES = [
+    "Chaitra", "Vaishakha", "Jyeshtha", "Ashadha", "Shravana", "Bhadrapada",
+    "Ashwin", "Kartika", "Margashirsha", "Pausha", "Magha", "Phalguna",
+]
+
+MOVABLE_KARANA_NAMES = [
+    "Bava", "Balava", "Kaulava", "Taitila", "Garaja", "Vanija", "Vishti",
+]
+
+FIXED_KARANA_BY_SLOT = {
+    0: "Kimstughna",
+    57: "Shakuni",
+    58: "Chatushpada",
+    59: "Naga",
+}
+
+KARANA_TYPE_INDEX = {
+    "Kimstughna": 1,
+    "Bava": 2,
+    "Balava": 3,
+    "Kaulava": 4,
+    "Taitila": 5,
+    "Garaja": 6,
+    "Vanija": 7,
+    "Vishti": 8,
+    "Shakuni": 9,
+    "Chatushpada": 10,
+    "Naga": 11,
+}
+
+VAARA_BY_PYTHON_WEEKDAY = {
+    6: ("Ravivaara", 1),
+    0: ("Somavaara", 2),
+    1: ("Mangalavaara", 3),
+    2: ("Budhavaara", 4),
+    3: ("Guruvaaara", 5),
+    4: ("Shukravaara", 6),
+    5: ("Shanivaaara", 7),
+}
+
+SYNODIC_MONTH_DAYS = 29.53059
+YOGAS_PER_CYCLE = 27
+YOGA_SPAN_DEG = 360.0 / YOGAS_PER_CYCLE

@@ -85,18 +85,8 @@ def chart():
         if cached_chart:
             # Return cached chart data
             current_app.logger.info(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
-            
-            response_data = {
-                "profile_id": str(profile.id),
-                "chart_id": str(cached_chart.id),
-                "profile": profile.to_dict(),
-                "metadata": cached_chart.chart_metadata,
-                "ascendant": cached_chart.ascendant_data,
-                "planets": cached_chart.planets_data,
-                "bhavChalit": cached_chart.bhav_chalit_data
-            }
-            
-            return jsonify(response_data), 200
+            from .chart_calc import chart_response_from_cached
+            return jsonify(chart_response_from_cached(profile, cached_chart)), 200
         
         # Step 3: Calculate chart (cache miss)
         current_app.logger.info(f"💫 Cache miss - calculating chart for profile: {profile.id}")
@@ -110,15 +100,12 @@ def chart():
         current_app.logger.info(f"💾 Chart saved to cache for profile: {profile.id}")
 
         # Step 5: Return chart data with profile information
-        response_data = {
-            "profile_id": str(profile.id),
-            "chart_id": str(saved_chart.id) if saved_chart else None,
-            "profile": profile.to_dict(),
-            "metadata": chart_data["metadata"],
-            "ascendant": chart_data["ascendant"],
-            "planets": chart_data["planets"],
-            "bhavChalit": chart_data["bhavChalit"],
-        }
+        from .chart_calc import chart_response_from_data
+        response_data = chart_response_from_data(
+            profile,
+            saved_chart.id if saved_chart else None,
+            chart_data,
+        )
 
         # Log successful response
         current_app.logger.info(f"🎉 Chart calculation successful")
@@ -177,18 +164,8 @@ def get_chart_by_profile(profile_id):
         if cached_chart:
             # Return cached chart
             current_app.logger.info(f"🎯 Cache hit - returning cached chart for profile: {profile.id}")
-            
-            response_data = {
-                "profile_id": str(profile.id),
-                "chart_id": str(cached_chart.id),
-                "profile": profile.to_dict(),
-                "metadata": cached_chart.chart_metadata,
-                "ascendant": cached_chart.ascendant_data,
-                "planets": cached_chart.planets_data,
-                "bhavChalit": cached_chart.bhav_chalit_data
-            }
-            
-            return jsonify(response_data), 200
+            from .chart_calc import chart_response_from_cached
+            return jsonify(chart_response_from_cached(profile, cached_chart)), 200
         
         # Step 3: Chart not cached - recalculate
         current_app.logger.info(f"💫 Cache miss - recalculating chart for profile: {profile.id}")
@@ -202,15 +179,12 @@ def get_chart_by_profile(profile_id):
         current_app.logger.info(f"💾 Chart recalculated and saved to cache for profile: {profile.id}")
         
         # Return response
-        response_data = {
-            "profile_id": str(profile.id),
-            "chart_id": str(saved_chart.id) if saved_chart else None,
-            "profile": profile.to_dict(),
-            "metadata": chart_data["metadata"],
-            "ascendant": chart_data["ascendant"],
-            "planets": chart_data["planets"],
-            "bhavChalit": chart_data["bhavChalit"]
-        }
+        from .chart_calc import chart_response_from_data
+        response_data = chart_response_from_data(
+            profile,
+            saved_chart.id if saved_chart else None,
+            chart_data,
+        )
         
         current_app.logger.info(f"🎉 Chart retrieval successful")
         return jsonify(response_data), 200

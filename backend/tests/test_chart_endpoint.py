@@ -18,6 +18,30 @@ def client(app):
     """Create test client"""
     return app.test_client()
 
+
+def assert_panchang_shape(panchang):
+    """Assert all five panchang limbs are present with expected keys."""
+    assert 'tithi' in panchang
+    tithi = panchang['tithi']
+    assert 'number' in tithi and 'name' in tithi and 'paksha' in tithi
+    assert 'lunarMonth' in tithi
+    assert 'amanta' in tithi['lunarMonth'] and 'purnimanta' in tithi['lunarMonth']
+
+    assert 'vaara' in panchang
+    assert 'number' in panchang['vaara'] and 'name' in panchang['vaara']
+
+    assert 'nakshatra' in panchang
+    assert 'index' in panchang['nakshatra'] and 'name' in panchang['nakshatra']
+    assert 'charan' in panchang['nakshatra']
+
+    assert 'yoga' in panchang
+    assert 'number' in panchang['yoga'] and 'name' in panchang['yoga']
+
+    assert 'karana' in panchang
+    assert 'name' in panchang['karana'] and 'typeIndex' in panchang['karana']
+    assert 'isFixed' in panchang['karana']
+
+
 def test_healthz_endpoint(client):
     """Test health check endpoint"""
     response = client.get('/healthz')
@@ -43,6 +67,8 @@ def test_chart_endpoint_basic(client):
     assert 'metadata' in result
     assert 'ascendant' in result
     assert 'planets' in result
+    assert 'panchang' in result
+    assert_panchang_shape(result['panchang'])
     assert len(result['planets']) == 12  # Sun, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Rahu, Ketu
 
     # Verify new fields exist on ascendant

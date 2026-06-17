@@ -1,6 +1,7 @@
 import swisseph as swe
 from datetime import datetime
 import logging
+from typing import Optional
 from .constants import PLANETS, AYANAMSHA, HOUSE_CODES, SEFLAGS
 from .utils import norm360, sign_index, house_from_sign
 
@@ -307,3 +308,44 @@ def compute_sripati_cusps(asc: float, ic: float, dsc: float, mc: float):
     })
 
     return {"madhyas": madhya_list, "sandhis": sandhis}
+
+
+def compute_sunrise(jd_search: float, lat: float, lon: float, direction: str) -> Optional[float]:
+    """
+    Find sunrise Julian Day at the given location.
+
+    Args:
+        jd_search: Reference Julian Day (UT)
+        lat: Geographic latitude in degrees
+        lon: Geographic longitude in degrees
+        direction: 'before' for last sunrise before jd_search, 'after' for first after
+
+    Returns:
+        Julian Day of sunrise, or None if swe.rise_trans fails
+    """
+    if direction not in ("before", "after"):
+        raise ValueError(f"direction must be 'before' or 'after', got: {direction}")
+
+    geopos = (lon, lat, 0.0)
+    rsmi = swe.CALC_RISE
+
+    def _rise_at(jd_start: float) -> Optional[float]:
+        retval, tret = swe.rise_trans(jd_start, swe.SUN, rsmi, geopos, 0.0, 0.0, swe.FLG_SWIEPH)
+        if retval < 0:
+            return None
+        return tret[0]
+
+    if direction == "before":
+        rise_jd = _rise_at(jd_search - 0.5)
+        if rise_jd is None:
+            return None
+        if rise_jd >= jd_search:
+            rise_jd = _rise_at(jd_search - 1.0)
+        return rise_jd
+
+    rise_jd = _rise_at(jd_search)
+    if rise_jd is None:
+        return None
+    if rise_jd <= jd_search:
+        rise_jd = _rise_at(jd_search + 0.5)
+    return rise_jd

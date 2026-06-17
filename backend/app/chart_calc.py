@@ -25,6 +25,7 @@ from .astro.utils import (
     get_longitude_metadata,
 )
 from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS, COMBUSTION_THRESHOLDS
+from .astro.panchang import compute_panchang
 
 
 def calculate_chart_for_profile(profile):
@@ -151,6 +152,22 @@ def calculate_chart_for_profile(profile):
 
         result_planets.append(rec)
     
+    moon_planet = next((p for p in result_planets if p["planet"] == "Moon"), None)
+    sun_planet = next((p for p in result_planets if p["planet"] == "Sun"), None)
+    panchang_data = None
+    if moon_planet and sun_planet:
+        panchang_data = compute_panchang(
+            jd_ut,
+            sun_planet["longitude"],
+            moon_planet["longitude"],
+            moon_planet["nakshatra"],
+            moon_planet["charan"],
+            profile.latitude,
+            profile.longitude,
+            profile.tz,
+            profile.utc_offset_minutes,
+        )
+
     # Calculate Bhav Chalit
     sripati_result = compute_sripati_cusps(
         angles["asc"],
@@ -219,10 +236,51 @@ def calculate_chart_for_profile(profile):
         "ascendant": ascendant_data,
         "planets": result_planets,
         "bhavChalit": bhav_chalit_data,
-        "metadata": metadata
+        "metadata": metadata,
+        "panchang": panchang_data,
     }
     
     return chart_data
+
+
+def chart_metadata_for_storage(chart_data: dict) -> dict:
+    """Nest panchang inside metadata for DB persistence."""
+    metadata = dict(chart_data["metadata"])
+    if chart_data.get("panchang") is not None:
+        metadata["panchang"] = chart_data["panchang"]
+    return metadata
+
+
+def chart_response_from_data(profile, chart_id, chart_data: dict) -> dict:
+    """Build API response dict with panchang at top level."""
+    metadata = dict(chart_data["metadata"])
+    panchang = chart_data.get("panchang")
+    return {
+        "profile_id": str(profile.id),
+        "chart_id": str(chart_id) if chart_id else None,
+        "profile": profile.to_dict(),
+        "metadata": metadata,
+        "panchang": panchang,
+        "ascendant": chart_data["ascendant"],
+        "planets": chart_data["planets"],
+        "bhavChalit": chart_data["bhavChalit"],
+    }
+
+
+def chart_response_from_cached(profile, cached_chart) -> dict:
+    """Build API response from cached Chart model."""
+    meta = dict(cached_chart.chart_metadata or {})
+    panchang = meta.pop("panchang", None)
+    return {
+        "profile_id": str(profile.id),
+        "chart_id": str(cached_chart.id),
+        "profile": profile.to_dict(),
+        "metadata": meta,
+        "panchang": panchang,
+        "ascendant": cached_chart.ascendant_data,
+        "planets": cached_chart.planets_data,
+        "bhavChalit": cached_chart.bhav_chalit_data,
+    }
 
 
 def calculate_transit_for_profile(profile):
