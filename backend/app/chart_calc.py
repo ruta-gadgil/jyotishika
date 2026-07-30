@@ -24,7 +24,8 @@ from .astro.utils import (
     get_navamsha_info,
     get_longitude_metadata,
 )
-from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS, COMBUSTION_THRESHOLDS
+from .astro.combustion import compute_combustion, apply_combustion_to_planets
+from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS
 from .astro.panchang import compute_panchang
 
 
@@ -109,16 +110,11 @@ def calculate_chart_for_profile(profile):
             rec["isStationary"] = False
 
         # Combustion metrics relative to Sun
-        combust_thresholds = COMBUSTION_THRESHOLDS.get(p["planet"])
-        if combust_thresholds is not None and sun_longitude is not None and p["planet"] != "Sun":
-            diff = abs(p["longitude"] - sun_longitude)
-            sun_distance = round(min(diff, 360.0 - diff), 4)
-            direction = "retrograde" if p["retrograde"] else "direct"
-            rec["sunDistance"] = sun_distance
-            rec["isCombust"] = sun_distance <= combust_thresholds[direction]
-        else:
-            rec["sunDistance"] = None
-            rec["isCombust"] = False
+        sun_distance, is_combust = compute_combustion(
+            p["planet"], p["longitude"], p["retrograde"], sun_longitude
+        )
+        rec["sunDistance"] = sun_distance
+        rec["isCombust"] = is_combust
 
         # Always include nakshatra, charan, and navamsha details (sidereal longitudes)
         nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
@@ -278,7 +274,7 @@ def chart_response_from_cached(profile, cached_chart) -> dict:
         "metadata": meta,
         "panchang": panchang,
         "ascendant": cached_chart.ascendant_data,
-        "planets": cached_chart.planets_data,
+        "planets": apply_combustion_to_planets(cached_chart.planets_data),
         "bhavChalit": cached_chart.bhav_chalit_data,
     }
 
@@ -342,16 +338,11 @@ def calculate_transit_for_profile(profile):
         threshold = STATIONARY_THRESHOLDS.get(p["planet"])
         rec["isStationary"] = abs(p["speed"]) <= threshold if threshold is not None else False
 
-        combust_thresholds = COMBUSTION_THRESHOLDS.get(p["planet"])
-        if combust_thresholds is not None and sun_longitude is not None and p["planet"] != "Sun":
-            diff = abs(p["longitude"] - sun_longitude)
-            sun_distance = round(min(diff, 360.0 - diff), 4)
-            direction = "retrograde" if p["retrograde"] else "direct"
-            rec["sunDistance"] = sun_distance
-            rec["isCombust"] = sun_distance <= combust_thresholds[direction]
-        else:
-            rec["sunDistance"] = None
-            rec["isCombust"] = False
+        sun_distance, is_combust = compute_combustion(
+            p["planet"], p["longitude"], p["retrograde"], sun_longitude
+        )
+        rec["sunDistance"] = sun_distance
+        rec["isCombust"] = is_combust
 
         nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
         nav_info = get_navamsha_info(p["longitude"])
