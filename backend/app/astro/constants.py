@@ -53,18 +53,6 @@ STATIONARY_THRESHOLDS = {
     "Saturn": 0.01,    # mean ~0.034°/day
 }
 
-# Combustion thresholds (angular distance from Sun in degrees) per Laghu Parashari / BPHS.
-# Mercury and Venus have tighter thresholds when retrograde (they face the Sun directly).
-# Sun, Rahu, Ketu, and outer planets are not subject to combustion.
-COMBUSTION_THRESHOLDS = {
-    "Moon":    {"direct": 12.0, "retrograde": 12.0},
-    "Mars":    {"direct": 17.0, "retrograde": 17.0},
-    "Mercury": {"direct": 14.0, "retrograde": 12.0},
-    "Jupiter": {"direct": 11.0, "retrograde": 11.0},
-    "Venus":   {"direct": 10.0, "retrograde":  8.0},
-    "Saturn":  {"direct": 15.0, "retrograde": 15.0},
-}
-
 # Ordered lists and mappings used for Vedic computations
 ZODIAC_SIGNS = [
     "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",

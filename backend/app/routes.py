@@ -13,7 +13,6 @@ from .astro.utils import (
     get_nakshatra_and_charan,
     get_navamsha_info,
 )
-from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS, COMBUSTION_THRESHOLDS
 from .astro.dasha import calculate_vimshottari_timeline
 from datetime import datetime
 import logging
