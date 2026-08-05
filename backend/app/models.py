@@ -120,7 +120,11 @@ class User(db.Model):
     # Provides account-level deactivation independent of approved_users
     # Both users.is_active AND approved_users.is_active must be True
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.text("true"))
-    
+
+    # Premium feature flag: planet ring visualization
+    # Granted manually via SQL; defaults to False for all users
+    planet_ring_premium = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text("false"))
+
     def __repr__(self):
         return f"<User {self.email} (google_sub={self.google_sub[:10]}...)>"
     

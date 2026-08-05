@@ -820,6 +820,9 @@ def get_user_info():
         response_data = {
             "logged_in": True,
             "username": name,
+            "features": {
+                "planet_ring": bool(getattr(user, "planet_ring_premium", False)),
+            },
             # "user": {
                 # "email": email,
                 # "name": name,
@@ -827,7 +830,7 @@ def get_user_info():
                 # "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
             # }
         }
-        
+
         return jsonify(response_data), 200
         
     except Exception as e:
