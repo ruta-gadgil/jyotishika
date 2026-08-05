@@ -71,7 +71,12 @@ CREATE TABLE IF NOT EXISTS users (
     
     -- Active flag allows account deactivation independent of approved_users
     -- Both users.is_active AND approved_users.is_active must be true for access
-    is_active BOOLEAN NOT NULL DEFAULT true
+    is_active BOOLEAN NOT NULL DEFAULT true,
+
+    -- Premium feature flag: planet ring visualization
+    -- Granted manually: UPDATE users SET planet_ring_premium = true WHERE email = '...';
+    -- Defaults to false for all users
+    planet_ring_premium BOOLEAN NOT NULL DEFAULT false
 );
 
 -- Index for fast lookup by google_sub (used in every protected request)
@@ -98,6 +103,7 @@ COMMENT ON COLUMN users.google_sub IS 'Google user ID from OAuth sub claim. Prim
 COMMENT ON COLUMN users.email IS 'User email from Google. Stored for convenience but google_sub is authoritative.';
 COMMENT ON COLUMN users.last_login_at IS 'Updated on every successful login via OAuth callback.';
 COMMENT ON COLUMN users.is_active IS 'Account active flag. Both this AND approved_users.is_active must be true.';
+COMMENT ON COLUMN users.planet_ring_premium IS 'Premium feature flag for planet ring visualization. Grant via: UPDATE users SET planet_ring_premium = true WHERE email = ''user@example.com'';';
 
 -- Enable RLS on approved_users table
 ALTER TABLE approved_users ENABLE ROW LEVEL SECURITY;
