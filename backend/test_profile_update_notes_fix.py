@@ -15,8 +15,8 @@ import os
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app import create_app, db
-from app.models import User, Profile, Chart, AnalysisNote
+from app import create_app
+from app.models import db, User, Profile, Chart, AnalysisNote
 from datetime import datetime
 import uuid
 
@@ -40,13 +40,15 @@ def test_profile_update_preserves_notes():
     with app.app_context():
         # Clean up test data if exists
         test_email = f"test_notes_{uuid.uuid4().hex[:8]}@example.com"
+        user = None
+        profile = None
         
         try:
             # Step 1: Create test user
             user = User(
                 email=test_email,
                 name="Test User",
-                email_verified=True
+                google_sub=f"test-notes-{uuid.uuid4().hex}",
             )
             db.session.add(user)
             db.session.commit()
@@ -63,7 +65,7 @@ def test_profile_update_preserves_notes():
                 longitude=-74.0060,
                 house_system="PLACIDUS",
                 ayanamsha="LAHIRI",
-                node_type="TRUE_NODE"
+                node_type="TRUE"
             )
             db.session.add(profile)
             db.session.commit()
@@ -107,8 +109,7 @@ def test_profile_update_preserves_notes():
             updated_profile, error = update_profile(profile.id, user.id, updates)
             
             if error:
-                print(f"❌ Profile update failed: {error}")
-                return False
+                raise AssertionError(f"Profile update failed: {error}")
             
             print(f"✅ Updated profile with chart-affecting fields")
             
@@ -119,51 +120,53 @@ def test_profile_update_preserves_notes():
             # Check chart still exists
             chart_after = Chart.query.filter_by(profile_id=profile.id).first()
             if not chart_after:
-                print("❌ FAIL: Chart was deleted (should have been updated in place)")
-                return False
+                raise AssertionError("Chart was deleted instead of updated in place")
             
             print(f"✅ Chart still exists: {chart_after.id}")
             
             # Check chart ID is the same
             if chart_after.id != original_chart_id:
-                print(f"❌ FAIL: Chart ID changed from {original_chart_id} to {chart_after.id}")
-                return False
+                raise AssertionError(
+                    f"Chart ID changed from {original_chart_id} to {chart_after.id}"
+                )
             
             print(f"✅ Chart ID preserved: {chart_after.id}")
             
             # Check notes still exist
             notes_after = AnalysisNote.query.filter_by(chart_id=chart_after.id).all()
             if len(notes_after) != 2:
-                print(f"❌ FAIL: Expected 2 notes, found {len(notes_after)}")
-                return False
+                raise AssertionError(f"Expected 2 notes, found {len(notes_after)}")
             
             print(f"✅ Both notes preserved: {len(notes_after)} notes found")
             
             # Check chart data was updated
             if chart_after.chart_metadata.get('ayanamsha') != 'RAMAN':
-                print(f"❌ FAIL: Chart ayanamsha not updated: {chart_after.chart_metadata.get('ayanamsha')}")
-                return False
+                raise AssertionError(
+                    "Chart ayanamsha not updated: "
+                    f"{chart_after.chart_metadata.get('ayanamsha')}"
+                )
             
             print(f"✅ Chart data updated (ayanamsha: {chart_after.chart_metadata.get('ayanamsha')})")
             
             # Verify latitude update in profile
-            profile_after = Profile.query.get(profile.id)
+            profile_after = db.session.get(Profile, profile.id)
             if profile_after.latitude != 41.0:
-                print(f"❌ FAIL: Profile latitude not updated: {profile_after.latitude}")
-                return False
+                raise AssertionError(f"Profile latitude not updated: {profile_after.latitude}")
             
             print(f"✅ Profile updated (latitude: {profile_after.latitude})")
             
             print("\n🎉 TEST PASSED: Profile update preserves analysis notes!")
-            return True
             
         finally:
             # Cleanup
             try:
+                if profile:
+                    db.session.delete(profile)
+                    db.session.flush()
                 if user:
-                    # Delete user (cascades to profile, chart, notes)
                     db.session.delete(user)
-                    db.session.commit()
+                db.session.commit()
+                if user:
                     print(f"\n🧹 Cleaned up test data")
             except Exception as e:
                 print(f"\n⚠️  Cleanup error: {e}")
@@ -171,5 +174,8 @@ def test_profile_update_preserves_notes():
 
 
 if __name__ == "__main__":
-    success = test_profile_update_preserves_notes()
-    sys.exit(0 if success else 1)
+    try:
+        test_profile_update_preserves_notes()
+    except AssertionError as error:
+        print(f"❌ TEST FAILED: {error}")
+        sys.exit(1)

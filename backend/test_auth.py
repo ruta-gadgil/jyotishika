@@ -16,7 +16,7 @@ BASE_URL = "http://localhost:8000"
 FRONTEND_URL = "http://localhost:3000"
 
 
-def test_health_check():
+def check_health_check():
     """Test that the server is running."""
     print("\n1. Testing health check endpoint...")
     try:
@@ -35,7 +35,7 @@ def test_health_check():
         return False
 
 
-def test_me_endpoint_not_logged_in():
+def check_me_endpoint_not_logged_in():
     """Test /me endpoint when not logged in."""
     print("\n2. Testing /me endpoint (not logged in)...")
     try:
@@ -56,7 +56,7 @@ def test_me_endpoint_not_logged_in():
         return False
 
 
-def test_logout_endpoint_not_logged_in():
+def check_logout_endpoint_not_logged_in():
     """Test /auth/logout endpoint when not logged in."""
     print("\n3. Testing /auth/logout endpoint (not logged in)...")
     try:
@@ -77,7 +77,7 @@ def test_logout_endpoint_not_logged_in():
         return False
 
 
-def test_google_login_redirect():
+def check_google_login_redirect():
     """Test that /auth/google/login redirects to Google."""
     print("\n4. Testing /auth/google/login redirect...")
     try:
@@ -123,7 +123,7 @@ def test_google_login_redirect():
         return False
 
 
-def test_callback_without_code():
+def check_callback_without_code():
     """Test callback endpoint without authorization code."""
     print("\n5. Testing /auth/google/callback (missing code)...")
     try:
@@ -144,7 +144,7 @@ def test_callback_without_code():
         return False
 
 
-def test_callback_with_invalid_state():
+def check_callback_with_invalid_state():
     """Test callback endpoint with invalid state token."""
     print("\n6. Testing /auth/google/callback (invalid state)...")
     try:
@@ -209,12 +209,12 @@ def main():
     results = []
     
     # Run automated tests
-    results.append(("Health Check", test_health_check()))
-    results.append(("Me Endpoint (not logged in)", test_me_endpoint_not_logged_in()))
-    results.append(("Logout Endpoint (not logged in)", test_logout_endpoint_not_logged_in()))
-    results.append(("Google Login Redirect", test_google_login_redirect()))
-    results.append(("Callback (missing code)", test_callback_without_code()))
-    results.append(("Callback (invalid state)", test_callback_with_invalid_state()))
+    results.append(("Health Check", check_health_check()))
+    results.append(("Me Endpoint (not logged in)", check_me_endpoint_not_logged_in()))
+    results.append(("Logout Endpoint (not logged in)", check_logout_endpoint_not_logged_in()))
+    results.append(("Google Login Redirect", check_google_login_redirect()))
+    results.append(("Callback (missing code)", check_callback_without_code()))
+    results.append(("Callback (invalid state)", check_callback_with_invalid_state()))
     
     # Print summary
     print("\n" + "="*70)

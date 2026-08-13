@@ -6,7 +6,7 @@ Simple test script to verify the vedic astrology backend installation
 import sys
 import os
 
-def test_imports():
+def check_imports():
     """Test if all required modules can be imported"""
     try:
         import flask
@@ -31,7 +31,7 @@ def test_imports():
     
     return True
 
-def test_app_creation():
+def check_app_creation():
     """Test if the Flask app can be created"""
     try:
         # Temporarily set EPHE_PATH for testing
@@ -45,7 +45,7 @@ def test_app_creation():
         print(f"✗ Flask app creation failed: {e}")
         return False
 
-def test_ephemeris_path():
+def check_ephemeris_path():
     """Test if ephemeris path exists"""
     ephe_path = os.environ.get('EPHE_PATH', './ephe')
     if os.path.isdir(ephe_path):
@@ -64,17 +64,17 @@ def main():
     
     # Test imports
     print("\n1. Testing imports...")
-    if not test_imports():
+    if not check_imports():
         success = False
     
     # Test app creation
     print("\n2. Testing app creation...")
-    if not test_app_creation():
+    if not check_app_creation():
         success = False
     
     # Test ephemeris path
     print("\n3. Testing ephemeris path...")
-    test_ephemeris_path()
+    check_ephemeris_path()
     
     print("\n" + "=" * 50)
     if success:

@@ -14,10 +14,10 @@ run: check-deps
 	@FLASK_ENV=development EPHE_PATH=./ephe ../venv/bin/python -m flask --app app run --host=0.0.0.0 --port=8000
 
 test:
-	../venv/bin/pytest -q
+	EPHE_PATH=./ephe ../venv/bin/pytest -q
 
 test-all:
-	../venv/bin/pytest tests/ -v
+	EPHE_PATH=./ephe ../venv/bin/pytest tests/ -v
 
 docker-build:
 	docker build -t vedic-backend:latest .
