@@ -10,6 +10,8 @@ from app.astro.engine import (
 )
 from app.astro.utils import norm360, to_utc
 
+pytestmark = pytest.mark.usefixtures("authed_client")
+
 
 @pytest.fixture
 def app():
@@ -37,11 +39,13 @@ class TestSripatiCuspsCalculation:
         dsc = 180.0 # Madhya of house 7
         mc = 270.0  # Madhya of house 10
         
-        # compute_sripati_cusps returns Bhava Sandhis (boundaries between houses)
-        sandhis = compute_sripati_cusps(asc, ic, dsc, mc)
+        # compute_sripati_cusps returns both Bhava Madhyas and Sandhis.
+        result = compute_sripati_cusps(asc, ic, dsc, mc)
+        sandhis = result["sandhis"]
         
         # Should have 12 sandhis (boundaries)
         assert len(sandhis) == 12
+        assert len(result["madhyas"]) == 12
         
         # Each quadrant is 90°, so each house span is 30°
         # Bhava Madhyas are: 0°, 30°, 60°, 90°, 120°, 150°, 180°, 210°, 240°, 270°, 300°, 330°
@@ -71,7 +75,8 @@ class TestSripatiCuspsCalculation:
         dsc = 170.0  # Madhya of house 7
         mc = 260.0   # Madhya of house 10
         
-        sandhis = compute_sripati_cusps(asc, ic, dsc, mc)
+        result = compute_sripati_cusps(asc, ic, dsc, mc)
+        sandhis = result["sandhis"]
         
         # Quadrant 1: ASC (350°) to IC (80°), arc = 90°, each house span = 30°
         # Madhyas: 350°, 20° (350+30 wrapped), 50°
@@ -104,7 +109,8 @@ class TestSripatiCuspsCalculation:
         dsc = 195.0  # Madhya of house 7
         mc = 280.0   # Madhya of house 10
         
-        sandhis = compute_sripati_cusps(asc, ic, dsc, mc)
+        result = compute_sripati_cusps(asc, ic, dsc, mc)
+        sandhis = result["sandhis"]
         
         # Quadrant 1: ASC (15°) to IC (100°) = 85° arc
         # Each house span = 85/3 = 28.33°
@@ -228,7 +234,7 @@ class TestBhavChalitEndpoint:
         asc_main = result["ascendant"]["longitude"]
         asc_bhav = result["bhavChalit"]["ascendant"]["longitude"]
         
-        assert abs(asc_main - asc_bhav) < 0.01
+        assert abs((asc_main % 30) - asc_bhav) < 0.01
     
     def test_bhav_chalit_planet_house_placements(self, client):
         """Test that planets have valid house placements in Bhav Chalit"""

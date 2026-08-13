@@ -245,8 +245,8 @@ def compute_sripati_cusps(asc: float, ic: float, dsc: float, mc: float):
         mc: Midheaven longitude (Madhya of house 10) in degrees (0-360)
         
     Returns:
-        list: 12 Bhava Sandhis (house boundaries) in degrees, starting from Sandhi 1/2
-              Note: Sandhi N marks the boundary between house N and house N+1
+        dict: Bhava Madhyas and 12 Bhava Sandhis (house boundaries) in degrees.
+              Sandhi N marks the boundary between house N and house N+1.
     """
     # Step 1: Calculate all 12 Bhava Madhyas (house centers)
     madhyas = []

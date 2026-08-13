@@ -11,6 +11,8 @@ from app.astro.utils import to_utc, norm360, sign_index, house_from_sign
 from app.astro.engine import julian_day_utc, compute_whole_sign_cusps, ascendant_and_houses
 from datetime import datetime, timezone
 
+pytestmark = pytest.mark.usefixtures("authed_client")
+
 @pytest.fixture
 def app():
     """Create test app instance"""

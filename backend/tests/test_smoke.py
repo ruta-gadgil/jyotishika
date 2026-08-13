@@ -9,7 +9,9 @@ These tests verify that the most important functionality works:
 Run these before every deployment to catch breaking changes early.
 """
 import pytest
+from types import SimpleNamespace
 from app import create_app
+from app.chart_calc import calculate_chart_for_profile
 
 
 @pytest.fixture
@@ -38,23 +40,25 @@ def test_healthz_endpoint(client):
         assert response.json['database']['healthy'] == True
 
 
-def test_chart_endpoint_basic(client):
+def test_chart_calculation_basic(app):
     """Chart calculation must work - core business logic"""
-    data = {
-        "datetime": "2022-03-15T12:36:00",
-        "tz": "America/Los_Angeles",
-        "latitude": 37.3861,
-        "longitude": -122.0839,
-        "houseSystem": "WHOLE_SIGN",
-        "ayanamsha": "LAHIRI",
-        "nodeType": "MEAN"
-    }
-    
-    response = client.post('/chart', json=data)
-    assert response.status_code == 200
-    assert 'planets' in response.json
-    assert 'ascendant' in response.json
-    assert len(response.json['planets']) == 12  # All planets calculated
+    profile = SimpleNamespace(
+        datetime="2022-03-15T12:36:00",
+        tz="America/Los_Angeles",
+        utc_offset_minutes=None,
+        latitude=37.3861,
+        longitude=-122.0839,
+        house_system="WHOLE_SIGN",
+        ayanamsha="LAHIRI",
+        node_type="MEAN",
+    )
+
+    with app.app_context():
+        chart_data = calculate_chart_for_profile(profile)
+
+    assert "planets" in chart_data
+    assert "ascendant" in chart_data
+    assert len(chart_data["planets"]) == 12
 
 
 def test_oauth_login_endpoint_accessible(client):

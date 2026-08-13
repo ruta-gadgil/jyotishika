@@ -16,6 +16,7 @@ from .astro.engine import (
 )
 from .astro.utils import (
     to_utc,
+    to_local,
     sign_index,
     house_from_sign,
     house_from_cusps,
@@ -279,12 +280,13 @@ def chart_response_from_cached(profile, cached_chart) -> dict:
     }
 
 
-def calculate_transit_for_profile(profile):
+def calculate_transit_for_profile(profile, at_dt=None):
     """
-    Calculate current planetary transit positions relative to natal ascendant.
+    Calculate planetary transit positions relative to natal ascendant.
 
-    Uses the current UTC datetime for planet positions but the natal ascendant
-    (from profile birth data) for house placement.
+    Uses the supplied UTC datetime, or the current UTC datetime when omitted,
+    for planet positions but the natal ascendant (from profile birth data) for
+    house placement.
 
     Returns:
         dict with keys: ascendant (natal), planets (current), metadata
@@ -310,8 +312,13 @@ def calculate_transit_for_profile(profile):
     )
     asc_sign = sign_index(asc_long)
 
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
-    now_jd = julian_day_utc(now_utc)
+    transit_datetime_utc_aware = (at_dt or datetime.now(timezone.utc))
+    if transit_datetime_utc_aware.tzinfo is None:
+        transit_datetime_utc_aware = transit_datetime_utc_aware.replace(tzinfo=timezone.utc)
+    else:
+        transit_datetime_utc_aware = transit_datetime_utc_aware.astimezone(timezone.utc)
+    transit_datetime_utc = transit_datetime_utc_aware.replace(tzinfo=None)
+    now_jd = julian_day_utc(transit_datetime_utc)
     transit_planets_raw = compute_planets(now_jd, profile.node_type)
 
     sun_longitude = next((p["longitude"] for p in transit_planets_raw if p["planet"] == "Sun"), None)
@@ -387,12 +394,23 @@ def calculate_transit_for_profile(profile):
         }
     }
 
+    local_dt, local_offset_minutes, local_tz_name = to_local(
+        transit_datetime_utc_aware,
+        profile.tz,
+        profile.utc_offset_minutes,
+        profile.latitude,
+        profile.longitude,
+    )
+
     metadata = {
         "system": "sidereal",
         "ayanamsha": profile.ayanamsha,
         "houseSystem": profile.house_system,
         "nodeType": profile.node_type,
-        "transitDatetimeUTC": now_utc.isoformat(timespec="seconds") + "Z"
+        "transitDatetimeUTC": transit_datetime_utc.isoformat(timespec="seconds") + "Z",
+        "transitDatetimeLocal": local_dt.isoformat(timespec="seconds"),
+        "transitUtcOffsetMinutes": local_offset_minutes,
+        "transitTimezone": local_tz_name,
     }
 
     return {

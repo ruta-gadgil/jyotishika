@@ -6,7 +6,7 @@ Example script demonstrating the Vedic Astrology Backend API
 import requests
 import json
 
-def test_health_check():
+def check_health_check():
     """Test the health check endpoint"""
     print("Testing health check endpoint...")
     try:
@@ -21,7 +21,7 @@ def test_health_check():
         print("✗ Could not connect to server. Is it running?")
         return False
 
-def test_chart_calculation():
+def check_chart_calculation():
     """Test chart calculation with example data"""
     print("\nTesting chart calculation...")
     
@@ -68,7 +68,7 @@ def test_chart_calculation():
         print("✗ Could not connect to server")
         return False
 
-def test_validation_errors():
+def check_validation_errors():
     """Test validation error handling"""
     print("\nTesting validation errors...")
     
@@ -103,17 +103,17 @@ def main():
     print("=" * 50)
     
     # Test health check
-    if not test_health_check():
+    if not check_health_check():
         print("\nPlease start the server first:")
         print("  cd backend")
         print("  make run")
         return
     
     # Test chart calculation
-    test_chart_calculation()
+    check_chart_calculation()
     
     # Test validation errors
-    test_validation_errors()
+    check_validation_errors()
     
     print("\n" + "=" * 50)
     print("API testing completed!")

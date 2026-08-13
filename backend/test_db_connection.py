@@ -59,7 +59,7 @@ def url_encode_password(password):
     
     return encoded
 
-def test_connection(database_url):
+def check_connection(database_url):
     """Test database connection."""
     try:
         from sqlalchemy import create_engine, text
@@ -118,7 +118,7 @@ def main():
     print("\n" + "=" * 60)
     print("Testing Connection")
     print("=" * 60)
-    success = test_connection(database_url)
+    success = check_connection(database_url)
     
     if not success:
         print("\n" + "=" * 60)
