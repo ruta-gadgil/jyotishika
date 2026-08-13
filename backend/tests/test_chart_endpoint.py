@@ -48,7 +48,7 @@ def test_healthz_endpoint(client):
     assert response.status_code == 200
     assert response.json['ok'] == True
 
-def test_chart_endpoint_basic(client):
+def test_chart_endpoint_basic(authed_client):
     """Test basic chart calculation"""
     data = {
         "datetime": "1991-03-25T09:46:00",
@@ -60,7 +60,7 @@ def test_chart_endpoint_basic(client):
         "nodeType": "MEAN"
     }
     
-    response = client.post('/chart', json=data)
+    response = authed_client.post('/chart', json=data)
     assert response.status_code == 200
     
     result = response.json
@@ -87,7 +87,85 @@ def test_chart_endpoint_basic(client):
         assert 'navamsha' in p and isinstance(p['navamsha'], dict)
         assert 'sign' in p['navamsha'] and 'ordinal' in p['navamsha'] and 'degreeInNavamsha' in p['navamsha']
 
-def test_chart_endpoint_sf(client):
+
+def test_transit_endpoint_uses_requested_datetime(authed_client, monkeypatch):
+    """Transit treats an offset-free atDate as local time in the profile timezone."""
+    from conftest import TestProfile
+    import app.db
+
+    profile = TestProfile(
+        {
+            "datetime": "1991-03-25T09:46:00",
+            "tz": "Asia/Kolkata",
+            "utc_offset_minutes": None,
+            "latitude": 18.5204,
+            "longitude": 73.8567,
+        },
+        {
+            "house_system": "WHOLE_SIGN",
+            "ayanamsha": "LAHIRI",
+            "node_type": "MEAN",
+        },
+    )
+    monkeypatch.setattr(app.db, "get_user_profile", lambda profile_id, user_id: (profile, None))
+
+    response = authed_client.get(
+        f"/transit/{profile.id}",
+        query_string={"atDate": "2025-01-15T00:00:00"},
+    )
+
+    assert response.status_code == 200
+    metadata = response.json["metadata"]
+    assert metadata["transitDatetimeUTC"] == "2025-01-14T18:30:00Z"
+    assert metadata["transitDatetimeLocal"] == "2025-01-15T00:00:00"
+    assert metadata["transitUtcOffsetMinutes"] == 330
+    assert metadata["transitTimezone"] == "Asia/Kolkata"
+
+
+def test_transit_endpoint_resolves_timezone_from_coordinates(authed_client, monkeypatch):
+    """When no tz/offset is saved on the profile, local time is derived from lat/long."""
+    from conftest import TestProfile
+    import app.db
+
+    profile = TestProfile(
+        {
+            "datetime": "1991-03-25T09:46:00",
+            "tz": None,
+            "utc_offset_minutes": None,
+            "latitude": 18.5204,
+            "longitude": 73.8567,
+        },
+        {
+            "house_system": "WHOLE_SIGN",
+            "ayanamsha": "LAHIRI",
+            "node_type": "MEAN",
+        },
+    )
+    monkeypatch.setattr(app.db, "get_user_profile", lambda profile_id, user_id: (profile, None))
+
+    response = authed_client.get(
+        f"/transit/{profile.id}",
+        query_string={"atDate": "2025-01-15T00:00:00"},
+    )
+
+    assert response.status_code == 200
+    metadata = response.json["metadata"]
+    assert metadata["transitDatetimeUTC"] == "2025-01-14T18:30:00Z"
+    assert metadata["transitDatetimeLocal"] == "2025-01-15T00:00:00"
+    assert metadata["transitTimezone"] == "Asia/Kolkata"
+
+
+def test_transit_endpoint_rejects_invalid_datetime(authed_client):
+    """Transit dates must use ISO-8601 datetime format."""
+    response = authed_client.get(
+        "/transit/00000000-0000-0000-0000-000000000000",
+        query_string={"atDate": "not-a-datetime"},
+    )
+
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "VALIDATION_ERROR"
+
+def test_chart_endpoint_sf(authed_client):
     """Test chart calculation for San Francisco"""
     data = {
         "datetime": "2025-09-03T12:30:00",
@@ -99,14 +177,14 @@ def test_chart_endpoint_sf(client):
         "nodeType": "MEAN"
     }
     
-    response = client.post('/chart', json=data)
+    response = authed_client.post('/chart', json=data)
     assert response.status_code == 200
     
     result = response.json
     assert result['metadata']['system'] == 'sidereal'
     assert result['metadata']['ayanamsha'] == 'LAHIRI'
 
-def test_chart_endpoint_mountain_view_dst(client):
+def test_chart_endpoint_mountain_view_dst(authed_client):
     """Test chart calculation for Mountain View, CA during DST - March 15, 2022"""
     data = {
         "datetime": "2022-03-15T12:36:00",
@@ -118,7 +196,7 @@ def test_chart_endpoint_mountain_view_dst(client):
         "nodeType": "MEAN"
     }
     
-    response = client.post('/chart', json=data)
+    response = authed_client.post('/chart', json=data)
     assert response.status_code == 200
     
     result = response.json
@@ -177,8 +255,8 @@ def test_timezone_detection_edge_cases():
     test_cases = [
         (61.2181, -149.9003, "America/Anchorage"),  # Anchorage, AK
         (21.3099, -157.8581, "Pacific/Honolulu"),   # Honolulu, HI
-        (43.6532, -79.3832, "America/New_York"),   # Toronto, Canada
-        (49.2827, -123.1207, "America/Los_Angeles"), # Vancouver, Canada
+        (43.6532, -79.3832, "America/Toronto"),    # Toronto, Canada
+        (49.2827, -123.1207, "America/Vancouver"),   # Vancouver, Canada
     ]
     
     for lat, lon, expected_tz in test_cases:
@@ -205,7 +283,7 @@ def test_utc_conversion_mountain_view_dst():
     assert dt_utc_auto.month == 3
     assert dt_utc_auto.year == 2022
 
-def test_validation_errors(client):
+def test_validation_errors(authed_client):
     """Test various validation errors"""
     # Invalid latitude
     data = {
@@ -214,7 +292,7 @@ def test_validation_errors(client):
         "latitude": 100.0,  # Invalid
         "longitude": 73.8567
     }
-    response = client.post('/chart', json=data)
+    response = authed_client.post('/chart', json=data)
     assert response.status_code == 400
     assert 'VALIDATION_ERROR' in response.json['error']['code']
 
@@ -225,7 +303,7 @@ def test_validation_errors(client):
         "latitude": 18.5204,
         "longitude": 73.8567
     }
-    response = client.post('/chart', json=data)
+    response = authed_client.post('/chart', json=data)
     assert response.status_code == 400
 
 def test_utc_conversion():

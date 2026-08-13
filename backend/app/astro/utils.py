@@ -95,6 +95,41 @@ def to_utc(dt_iso: str, tz: Optional[str], offset_minutes: Optional[int], latitu
     # Default: treat as UTC (fallback)
     return naive.replace(tzinfo=timezone.utc)
 
+def to_local(dt_utc: datetime, tz: Optional[str], offset_minutes: Optional[int], latitude: Optional[float] = None, longitude: Optional[float] = None) -> Tuple[datetime, int, Optional[str]]:
+    """
+    Convert a UTC datetime to local wall-clock time, using the same
+    resolution priority as to_utc (explicit tz name, then explicit offset,
+    then coordinate-detected tz, then UTC). This guarantees that converting
+    a naive local datetime to UTC via to_utc and then back to local via
+    to_local reproduces the original wall-clock time exactly.
+
+    Returns:
+        (naive_local_datetime, utc_offset_minutes, tz_name_or_None)
+    """
+    if dt_utc.tzinfo is None:
+        dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+    else:
+        dt_utc = dt_utc.astimezone(timezone.utc)
+
+    if tz:
+        tz_obj = pytz.timezone(tz)
+        local_dt = dt_utc.astimezone(tz_obj)
+        offset = int(local_dt.utcoffset().total_seconds() // 60)
+        return local_dt.replace(tzinfo=None), offset, tz
+
+    if offset_minutes is not None:
+        local_dt = (dt_utc + timedelta(minutes=offset_minutes)).replace(tzinfo=None)
+        return local_dt, offset_minutes, None
+
+    if latitude is not None and longitude is not None:
+        detected_tz = detect_timezone_from_coordinates(latitude, longitude)
+        tz_obj = pytz.timezone(detected_tz)
+        local_dt = dt_utc.astimezone(tz_obj)
+        offset = int(local_dt.utcoffset().total_seconds() // 60)
+        return local_dt.replace(tzinfo=None), offset, detected_tz
+
+    return dt_utc.replace(tzinfo=None), 0, None
+
 def norm360(x: float) -> float:
     """Normalize longitude to [0, 360) range"""
     return x % 360.0

@@ -14,7 +14,7 @@ from .astro.utils import (
     get_navamsha_info,
 )
 from .astro.dasha import calculate_vimshottari_timeline
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 bp = Blueprint("api", __name__)
@@ -202,9 +202,10 @@ def get_chart_by_profile(profile_id):
 @bp.route("/transit/<profile_id>", methods=["GET"])
 def get_transit_by_profile(profile_id):
     """
-    Get current transit chart for a profile.
+    Get a transit chart for a profile.
 
-    Transit planets are computed at the current UTC time and placed in
+    Transit planets are computed at the optional `atDate` profile-local
+    datetime, or at the current UTC time when it is omitted, and placed in
     houses relative to the natal ascendant. Not cached.
     """
     session_data = get_current_user()
@@ -220,11 +221,38 @@ def get_transit_by_profile(profile_id):
         from .db import get_user_profile
         from .chart_calc import calculate_transit_for_profile
 
+        at_date = request.args.get("atDate")
+        requested_datetime = None
+        if at_date:
+            try:
+                requested_datetime = datetime.fromisoformat(at_date.replace("Z", "+00:00"))
+            except ValueError:
+                return jsonify({
+                    "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "atDate must be a valid ISO-8601 datetime",
+                        "details": {"field": "atDate", "value": at_date}
+                    }
+                }), 400
+
         profile, error_response = get_user_profile(profile_id, user.id)
         if error_response:
             return error_response
 
-        transit_data = calculate_transit_for_profile(profile)
+        transit_datetime_utc = None
+        if requested_datetime:
+            if requested_datetime.tzinfo is None:
+                transit_datetime_utc = to_utc(
+                    at_date,
+                    profile.tz,
+                    profile.utc_offset_minutes,
+                    profile.latitude,
+                    profile.longitude,
+                )
+            else:
+                transit_datetime_utc = requested_datetime.astimezone(timezone.utc)
+
+        transit_data = calculate_transit_for_profile(profile, at_dt=transit_datetime_utc)
 
         response_data = {
             "profile_id": str(profile.id),
