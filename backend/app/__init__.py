@@ -16,7 +16,7 @@ from flask import Flask, jsonify, Response
 from .routes import bp
 from .auth import auth_bp
 from .geocoding_routes import geocoding_bp
-from .db import init_db, check_db_connection
+from .db import init_db, check_db_connection, normalize_database_url, DB_INIT_ERROR_KEY
 from .logging_config import configure_logging
 import sys
 
@@ -78,7 +78,7 @@ def create_app():
     # PRODUCTION: DATABASE_URL must be set via environment variable
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
-        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+        app.config["SQLALCHEMY_DATABASE_URI"] = normalize_database_url(database_url)
         # Initialize database with connection pooling
         # Wrap in try-catch to prevent startup failures if database is unavailable
         try:
@@ -86,6 +86,8 @@ def create_app():
             app.logger.info("Database initialized successfully")
         except Exception as e:
             app.logger.error(f"Failed to initialize database: {str(e)}")
+            # Recorded so /healthz reports the real cause and fails the deploy check
+            app.config[DB_INIT_ERROR_KEY] = str(e)
             app.logger.warning("Server will start without database - some features may be unavailable")
             # Don't fail startup - allow server to run even if database is unavailable
     else:

@@ -11,8 +11,36 @@ SECURITY NOTES:
 """
 
 from flask import current_app
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from .models import db
+
+# The Postgres DBAPI driver we install (see requirements.txt: psycopg2-binary).
+# Always name it explicitly: a driverless "postgresql://" URL resolves to whatever
+# default the installed SQLAlchemy version chooses (psycopg2 before 2.1, psycopg v3
+# from 2.1), which silently breaks if that driver is not in the image.
+POSTGRES_DRIVERNAME = "postgresql+psycopg2"
+
+# app.config key holding the startup error if database initialization failed.
+DB_INIT_ERROR_KEY = "DB_INIT_ERROR"
+
+
+def normalize_database_url(database_url):
+    """
+    Return a SQLAlchemy URL string that names its DBAPI driver explicitly.
+
+    - "postgres://" (legacy scheme used by some providers) and "postgresql://"
+      are bound to POSTGRES_DRIVERNAME.
+    - URLs that already name a driver (e.g. "postgresql+psycopg://") or use another
+      database (e.g. "sqlite://") are returned unchanged, so an explicit choice wins.
+
+    Parsing goes through SQLAlchemy's make_url so special characters in the
+    password survive the round trip.
+    """
+    url = make_url(database_url)
+    if url.drivername in ("postgres", "postgresql"):
+        url = url.set(drivername=POSTGRES_DRIVERNAME)
+    return url.render_as_string(hide_password=False)
 
 
 # Bump whenever the stored chart payload changes shape: stale cached charts are
@@ -108,6 +136,12 @@ def check_db_connection():
         
     Used by health check endpoint to verify database connectivity.
     """
+    # Report the real startup failure (e.g. missing DBAPI driver) instead of the
+    # misleading "could not locate a bind" error every query would raise afterwards.
+    init_error = current_app.config.get(DB_INIT_ERROR_KEY)
+    if init_error:
+        return False, f"Database failed to initialize: {init_error}"
+
     try:
         # Execute a simple query to test connection
         db.session.execute(db.text("SELECT 1"))
