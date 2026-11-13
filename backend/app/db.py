@@ -15,7 +15,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from .models import db
 
 
-CURRENT_CHART_SCHEMA_VERSION = 4
+# Bump whenever the stored chart payload changes shape: stale cached charts are
+# recalculated and re-saved on next access (see get_cached_chart).
+# v5: adds dashamsha (D10) to the ascendant and each planet, and stores combustion
+#     computed with the Moon excluded (earlier charts could flag the Moon as combust).
+CURRENT_CHART_SCHEMA_VERSION = 5
 
 
 def init_db(app):

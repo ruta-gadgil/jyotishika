@@ -22,10 +22,10 @@ from .astro.utils import (
     house_from_cusps,
     format_utc_offset,
     get_nakshatra_and_charan,
-    get_navamsha_info,
     get_longitude_metadata,
 )
-from .astro.combustion import compute_combustion, apply_combustion_to_planets
+from .astro.combustion import compute_combustion
+from .astro.divisional import divisional_payloads
 from .astro.constants import PLANET_MEAN_SPEEDS, STATIONARY_THRESHOLDS
 from .astro.panchang import compute_panchang
 
@@ -70,9 +70,8 @@ def calculate_chart_for_profile(profile):
     )
     asc_sign = sign_index(asc_long)
     
-    # Calculate nakshatra, charan, and navamsha for ascendant
+    # Calculate nakshatra and charan for ascendant
     asc_nak_name, asc_nak_index_1, asc_charan_1to4 = get_nakshatra_and_charan(asc_long)
-    asc_nav_info = get_navamsha_info(asc_long)
     
     # Calculate planets
     planets = compute_planets(jd_ut, profile.node_type)
@@ -117,17 +116,11 @@ def calculate_chart_for_profile(profile):
         rec["sunDistance"] = sun_distance
         rec["isCombust"] = is_combust
 
-        # Always include nakshatra, charan, and navamsha details (sidereal longitudes)
+        # Always include nakshatra, charan, and divisional chart positions (sidereal longitudes)
         nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
-        nav_info = get_navamsha_info(p["longitude"])
         rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
         rec["charan"] = charan_1to4
-        rec["navamsha"] = {
-            "sign": nav_info["sign"],
-            "signIndex": nav_info["signIndex"],
-            "ordinal": nav_info["ordinal"],
-            "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
-        }
+        rec.update(divisional_payloads(p["longitude"]))
 
         # Sign and house placement
         rec["signIndex"] = sign_index(p["longitude"])
@@ -190,12 +183,7 @@ def calculate_chart_for_profile(profile):
         "house": 1,
         "nakshatra": {"name": asc_nak_name, "index": asc_nak_index_1},
         "charan": asc_charan_1to4,
-        "navamsha": {
-            "sign": asc_nav_info["sign"],
-            "signIndex": asc_nav_info["signIndex"],
-            "ordinal": asc_nav_info["ordinal"],
-            "degreeInNavamsha": round(asc_nav_info["degreeInNavamsha"], 4),
-        }
+        **divisional_payloads(asc_long),
     }
     
     bhav_chalit_data = {
@@ -275,7 +263,7 @@ def chart_response_from_cached(profile, cached_chart) -> dict:
         "metadata": meta,
         "panchang": panchang,
         "ascendant": cached_chart.ascendant_data,
-        "planets": apply_combustion_to_planets(cached_chart.planets_data),
+        "planets": cached_chart.planets_data,
         "bhavChalit": cached_chart.bhav_chalit_data,
     }
 
@@ -352,15 +340,9 @@ def calculate_transit_for_profile(profile, at_dt=None):
         rec["isCombust"] = is_combust
 
         nak_name, nak_index_1, charan_1to4 = get_nakshatra_and_charan(p["longitude"])
-        nav_info = get_navamsha_info(p["longitude"])
         rec["nakshatra"] = {"name": nak_name, "index": nak_index_1}
         rec["charan"] = charan_1to4
-        rec["navamsha"] = {
-            "sign": nav_info["sign"],
-            "signIndex": nav_info["signIndex"],
-            "ordinal": nav_info["ordinal"],
-            "degreeInNavamsha": round(nav_info["degreeInNavamsha"], 4),
-        }
+        rec.update(divisional_payloads(p["longitude"]))
 
         rec["signIndex"] = sign_index(p["longitude"])
         if profile.house_system == "WHOLE_SIGN":
@@ -378,7 +360,6 @@ def calculate_transit_for_profile(profile, at_dt=None):
         result_planets.append(rec)
 
     asc_nak_name, asc_nak_index_1, asc_charan_1to4 = get_nakshatra_and_charan(asc_long)
-    asc_nav_info = get_navamsha_info(asc_long)
 
     ascendant_data = {
         "longitude": round(asc_long, 2),
@@ -386,12 +367,7 @@ def calculate_transit_for_profile(profile, at_dt=None):
         "house": 1,
         "nakshatra": {"name": asc_nak_name, "index": asc_nak_index_1},
         "charan": asc_charan_1to4,
-        "navamsha": {
-            "sign": asc_nav_info["sign"],
-            "signIndex": asc_nav_info["signIndex"],
-            "ordinal": asc_nav_info["ordinal"],
-            "degreeInNavamsha": round(asc_nav_info["degreeInNavamsha"], 4),
-        }
+        **divisional_payloads(asc_long),
     }
 
     local_dt, local_offset_minutes, local_tz_name = to_local(

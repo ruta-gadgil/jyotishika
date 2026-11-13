@@ -1,6 +1,7 @@
 import pytest
 from app import create_app
 from app.schemas import ChartRequest
+from app.astro.divisional import DIVISIONAL_CHARTS
 from app.astro.utils import to_utc, norm360, sign_index, house_from_sign
 from app.astro.engine import julian_day_utc, compute_whole_sign_cusps
 from datetime import datetime, timezone
@@ -17,6 +18,19 @@ def app():
 def client(app):
     """Create test client"""
     return app.test_client()
+
+
+def assert_divisional_shapes(record):
+    """Assert a chart record carries a well-formed position for every registered divisional chart."""
+    for key, chart in DIVISIONAL_CHARTS.items():
+        position = record[key]
+        assert isinstance(position['sign'], str)
+        assert 0 <= position['signIndex'] <= 11
+        assert 1 <= position['ordinal'] <= chart.divisions
+        # Degree is rounded to 4 decimals, so it can equal the span exactly
+        assert 0 <= position['degreeInDivision'] <= 30.0 / chart.divisions
+    # Legacy field kept for existing consumers
+    assert record['navamsha']['degreeInNavamsha'] == record['navamsha']['degreeInDivision']
 
 
 def assert_panchang_shape(panchang):
@@ -76,16 +90,23 @@ def test_chart_endpoint_basic(authed_client):
     assert 'nakshatra' in ascendant and isinstance(ascendant['nakshatra'], dict)
     assert 'name' in ascendant['nakshatra'] and 'index' in ascendant['nakshatra']
     assert 'charan' in ascendant and 1 <= ascendant['charan'] <= 4
-    assert 'navamsha' in ascendant and isinstance(ascendant['navamsha'], dict)
-    assert 'sign' in ascendant['navamsha'] and 'ordinal' in ascendant['navamsha'] and 'degreeInNavamsha' in ascendant['navamsha']
+    assert_divisional_shapes(ascendant)
 
     # Verify new fields exist on each planet
     for p in result['planets']:
         assert 'nakshatra' in p and isinstance(p['nakshatra'], dict)
         assert 'name' in p['nakshatra'] and 'index' in p['nakshatra']
         assert 'charan' in p and 1 <= p['charan'] <= 4
-        assert 'navamsha' in p and isinstance(p['navamsha'], dict)
-        assert 'sign' in p['navamsha'] and 'ordinal' in p['navamsha'] and 'degreeInNavamsha' in p['navamsha']
+        assert_divisional_shapes(p)
+
+    # Combustion is computed at calculation time (and cached), never patched on read:
+    # the Moon is never combust, and combustible grahas carry their Sun distance.
+    by_name = {p['planet']: p for p in result['planets']}
+    assert by_name['Moon']['isCombust'] is False
+    assert by_name['Moon']['sunDistance'] is None
+    for name in ('Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn'):
+        assert isinstance(by_name[name]['sunDistance'], float)
+        assert isinstance(by_name[name]['isCombust'], bool)
 
 
 def test_transit_endpoint_uses_requested_datetime(authed_client, monkeypatch):

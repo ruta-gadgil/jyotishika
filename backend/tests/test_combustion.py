@@ -1,5 +1,4 @@
 from app.astro.combustion import (
-    apply_combustion_to_planets,
     compute_combustion,
     sun_angular_distance,
 )
@@ -53,15 +52,3 @@ def test_outer_planets_are_not_combust():
         assert dist is None
         assert combust is False
 
-
-def test_apply_combustion_to_planets_patches_stale_cache():
-    planets = [
-        {"planet": "Sun", "longitude": SUN_LON, "retrograde": False},
-        {"planet": "Moon", "longitude": SUN_LON + 5, "retrograde": False, "isCombust": True},
-        {"planet": "Mars", "longitude": SUN_LON + 10, "retrograde": False, "isCombust": False},
-    ]
-    result = apply_combustion_to_planets(planets)
-    moon = next(p for p in result if p["planet"] == "Moon")
-    mars = next(p for p in result if p["planet"] == "Mars")
-    assert moon["isCombust"] is False
-    assert mars["isCombust"] is True

@@ -1,6 +1,6 @@
 """Combustion (astangata) rules and calculations for Vedic charts."""
 
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 # Grahas that are never combust in Vedic astrology.
 # Moon: new moon proximity is a lunar phase, not combustion (astangata).
@@ -48,23 +48,3 @@ def compute_combustion(
     is_combust = sun_distance <= thresholds[direction]
     return sun_distance, is_combust
 
-
-def apply_combustion_to_planets(planets: List[dict]) -> List[dict]:
-    """Recompute sunDistance and isCombust for a stored or cached planet list."""
-    sun_longitude = next(
-        (p["longitude"] for p in planets if p.get("planet") == "Sun"),
-        None,
-    )
-    result = []
-    for p in planets:
-        rec = dict(p)
-        sun_distance, is_combust = compute_combustion(
-            rec["planet"],
-            rec["longitude"],
-            rec.get("retrograde", False),
-            sun_longitude,
-        )
-        rec["sunDistance"] = sun_distance
-        rec["isCombust"] = is_combust
-        result.append(rec)
-    return result
