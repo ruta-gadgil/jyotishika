@@ -78,6 +78,12 @@ def create_app():
     # PRODUCTION: DATABASE_URL must be set via environment variable
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
+        # Use the installed psycopg2 driver explicitly. SQLAlchemy 2.1+ defaults a
+        # driverless postgresql:// URL to psycopg (v3), which is not installed.
+        if database_url.startswith("postgres://"):
+            database_url = "postgresql://" + database_url[len("postgres://"):]
+        if database_url.startswith("postgresql://"):
+            database_url = "postgresql+psycopg2://" + database_url[len("postgresql://"):]
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
         # Initialize database with connection pooling
         # Wrap in try-catch to prevent startup failures if database is unavailable
