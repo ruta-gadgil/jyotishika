@@ -9,11 +9,6 @@ from .constants import (
     NAKSHATRA_NAMES,
     NAKSHATRA_SPAN_DEG,
     CHARAN_SPAN_DEG,
-    ZODIAC_SIGNS,
-    FIRE_SIGNS,
-    EARTH_SIGNS,
-    AIR_SIGNS,
-    WATER_SIGNS,
 )
 
 # Initialize timezone finder (expensive operation, so do it once)
@@ -223,53 +218,3 @@ def get_nakshatra_and_charan(longitude_sidereal: float) -> Tuple[str, int, int]:
     within_nak = lon - nak_index_0 * NAKSHATRA_SPAN_DEG
     charan_1to4 = int(within_nak // CHARAN_SPAN_DEG) + 1  # 1..4
     return NAKSHATRA_NAMES[nak_index_0], nak_index_0 + 1, charan_1to4
-
-
-def _navamsha_start_sign_index_for_element(sign_index_0: int) -> int:
-    """Return starting navamsha sign index for a base sign's element.
-
-    - Fire (Aries, Leo, Sagittarius): Aries (0)
-    - Earth (Taurus, Virgo, Capricorn): Capricorn (9)
-    - Air (Gemini, Libra, Aquarius): Libra (6)
-    - Water (Cancer, Scorpio, Pisces): Cancer (3)
-    """
-    if sign_index_0 in FIRE_SIGNS:
-        return 0  # Aries
-    if sign_index_0 in EARTH_SIGNS:
-        return 9  # Capricorn
-    if sign_index_0 in AIR_SIGNS:
-        return 6  # Libra
-    if sign_index_0 in WATER_SIGNS:
-        return 3  # Cancer
-    
-    # Default error case for unexpected sign indices
-    raise ValueError(f"Invalid sign index {sign_index_0}. Must be 0-11 (Aries-Pisces).")
-
-
-def get_navamsha_info(longitude_sidereal: float) -> Dict[str, object]:
-    """Compute navamsha sign and related info from sidereal longitude.
-
-    Returns dict with keys:
-      - signIndex: 0..11
-      - sign: sign name
-      - ordinal: 1..9 (navamsha number within the sign)
-      - degreeInNavamsha: float degrees [0, 3.3333..)
-    """
-    lon = longitude_sidereal % 360.0
-    base_sign_index = int(lon // 30.0)
-    deg_in_sign = lon - base_sign_index * 30.0
-    nav_span = 30.0 / 9.0  # 3°20'
-    ordinal_1to9 = int(deg_in_sign // nav_span) + 1
-    degree_in_navamsha = deg_in_sign - (ordinal_1to9 - 1) * nav_span
-
-    # Determine navamsha sign by element rule
-    start_sign = _navamsha_start_sign_index_for_element(base_sign_index)
-    nav_sign_index = (start_sign + (ordinal_1to9 - 1)) % 12
-    nav_sign_name = ZODIAC_SIGNS[nav_sign_index]
-
-    return {
-        "signIndex": nav_sign_index,
-        "sign": nav_sign_name,
-        "ordinal": ordinal_1to9,
-        "degreeInNavamsha": degree_in_navamsha,
-    }
