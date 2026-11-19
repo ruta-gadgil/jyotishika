@@ -14,6 +14,7 @@ from flask import current_app
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from .models import db
+from .profile_filters import ProfileFilters, apply_profile_filters
 
 # The Postgres DBAPI driver we install (see requirements.txt: psycopg2-binary).
 # Always name it explicitly: a driverless "postgresql://" URL resolves to whatever
@@ -593,6 +594,29 @@ def get_cached_chart(profile_id):
         return None
 
 
+def _apply_chart_data(chart, chart_data):
+    """
+    Copy calculated chart data onto a Chart instance (new or existing).
+
+    The single place where chart fields are written, including the derived sign
+    columns that profile filters query. Does not commit.
+    """
+    from .chart_calc import chart_metadata_for_storage
+    from .chart_signs import extract_chart_signs
+
+    signs = extract_chart_signs(chart_data)
+
+    chart.ascendant_data = chart_data['ascendant']
+    chart.planets_data = chart_data['planets']
+    chart.house_cusps = chart_data.get('houseCusps')
+    chart.bhav_chalit_data = chart_data['bhavChalit']
+    chart.chart_metadata = chart_metadata_for_storage(chart_data)
+    chart.schema_version = CURRENT_CHART_SCHEMA_VERSION
+    chart.asc_sign = signs.asc_sign
+    chart.moon_sign = signs.moon_sign
+    chart.sun_sign = signs.sun_sign
+
+
 def save_chart(profile_id, chart_data):
     """
     Save calculated chart results to database.
@@ -616,7 +640,6 @@ def save_chart(profile_id, chart_data):
     """
     from .models import Chart
     from sqlalchemy.exc import IntegrityError
-    from .chart_calc import chart_metadata_for_storage
     
     try:
         # Check if chart already exists
@@ -624,24 +647,12 @@ def save_chart(profile_id, chart_data):
         
         if chart:
             # Update existing chart
-            chart.ascendant_data = chart_data['ascendant']
-            chart.planets_data = chart_data['planets']
-            chart.house_cusps = chart_data.get('houseCusps')
-            chart.bhav_chalit_data = chart_data['bhavChalit']
-            chart.chart_metadata = chart_metadata_for_storage(chart_data)
-            chart.schema_version = CURRENT_CHART_SCHEMA_VERSION
+            _apply_chart_data(chart, chart_data)
             current_app.logger.info(f"Updated cached chart for profile: {profile_id}")
         else:
             # Create new chart
-            chart = Chart(
-                profile_id=profile_id,
-                ascendant_data=chart_data['ascendant'],
-                planets_data=chart_data['planets'],
-                house_cusps=chart_data.get('houseCusps'),
-                bhav_chalit_data=chart_data['bhavChalit'],
-                chart_metadata=chart_metadata_for_storage(chart_data),
-                schema_version=CURRENT_CHART_SCHEMA_VERSION,
-            )
+            chart = Chart(profile_id=profile_id)
+            _apply_chart_data(chart, chart_data)
             db.session.add(chart)
             current_app.logger.info(f"Created new cached chart for profile: {profile_id}")
         
@@ -658,12 +669,7 @@ def save_chart(profile_id, chart_data):
             
             if chart:
                 # Update the existing chart with our calculated data
-                chart.ascendant_data = chart_data['ascendant']
-                chart.planets_data = chart_data['planets']
-                chart.house_cusps = chart_data.get('houseCusps')
-                chart.bhav_chalit_data = chart_data['bhavChalit']
-                chart.chart_metadata = chart_metadata_for_storage(chart_data)
-                chart.schema_version = CURRENT_CHART_SCHEMA_VERSION
+                _apply_chart_data(chart, chart_data)
                 db.session.commit()
                 current_app.logger.info(f"Retrieved and updated existing chart after IntegrityError: {chart.id}")
                 return chart
@@ -687,41 +693,63 @@ def save_chart(profile_id, chart_data):
         raise
 
 
-def get_user_profiles(user_id, limit=100):
+DEFAULT_PROFILES_PAGE_SIZE = 25
+MAX_PROFILES_PAGE_SIZE = 100
+
+
+def get_user_profiles_page(
+    user_id,
+    page=1,
+    page_size=DEFAULT_PROFILES_PAGE_SIZE,
+    filters=ProfileFilters(),
+):
     """
-    Get all active profiles for a user.
-    
+    Get one page of a user's active profiles, plus the total across all pages.
+
     Args:
         user_id: UUID of the user
-        limit: Maximum number of profiles to return (default 100)
-        
+        page: 1-based page number
+        page_size: Rows per page
+        filters: ProfileFilters narrowing which profiles are listed
+
     Returns:
-        list: List of Profile model instances
-        
+        tuple: (profiles: list of Profile instances for this page, total: int)
+        where total counts the profiles matching the filters, across all pages.
+
     NOTES:
     - Only returns active profiles (is_active=True)
-    - Ordered by updated_at descending (most recently updated first)
-    - Limited to prevent excessive data transfer
+    - Ordered by updated_at DESC, id DESC. The id tie-break keeps page boundaries
+      stable when timestamps match.
+    - Filters are applied to the base query, so the count and the page share the
+      same filtered set and `total` always describes the rows.
+    - Errors propagate so callers can return a 500 instead of an empty list.
     """
     from .models import Profile
-    
+
     try:
-        profiles = Profile.query.filter_by(
-            user_id=user_id,
-            is_active=True
-        ).order_by(
-            Profile.updated_at.desc()
-        ).limit(limit).all()
-        
-        current_app.logger.info(f"Retrieved {len(profiles)} profiles for user: {user_id}")
-        return profiles
-        
+        base = apply_profile_filters(
+            Profile.query.filter(
+                Profile.user_id == user_id,
+                Profile.is_active.is_(True)
+            ),
+            filters,
+        )
+
+        total = base.order_by(None).count()
+
+        profiles = base.order_by(
+            Profile.updated_at.desc(),
+            Profile.id.desc()
+        ).offset((page - 1) * page_size).limit(page_size).all()
+
+        current_app.logger.info(
+            f"Retrieved {len(profiles)} of {total} profiles for user: {user_id} (page {page})"
+        )
+        return profiles, total
+
     except SQLAlchemyError as e:
-        current_app.logger.error(f"Database error in get_user_profiles: {str(e)}")
-        return []
-    except Exception as e:
-        current_app.logger.error(f"Unexpected error in get_user_profiles: {str(e)}")
-        return []
+        current_app.logger.error(f"Database error in get_user_profiles_page: {str(e)}")
+        raise
 
 
 def update_profile(profile_id, user_id, updates):

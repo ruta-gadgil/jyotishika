@@ -167,6 +167,8 @@ CREATE TABLE IF NOT EXISTS profiles (
 -- Indexes for profiles
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_profiles_user_active ON profiles(user_id, is_active);
+-- Backs paged GET /profiles (see migrations/002_profiles_user_updated_index.sql)
+CREATE INDEX IF NOT EXISTS idx_profiles_user_active_updated ON profiles (user_id, updated_at DESC, id DESC) WHERE is_active;
 
 -- Table 4: charts
 -- Cached astrological chart calculation results
@@ -186,6 +188,12 @@ CREATE TABLE IF NOT EXISTS charts (
     house_cusps JSONB,  -- House cusp positions (optional)
     bhav_chalit_data JSONB NOT NULL,  -- Bhav Chalit (Sripati) house system data
     chart_metadata JSONB NOT NULL,  -- Calculation metadata (system, ayanamsha, etc.)
+
+    -- Sign placements (0 = Aries ... 11 = Pisces) derived from the chart data above.
+    -- Plain columns so Saved Profiles filters never scan JSON. NULL = unknown.
+    asc_sign SMALLINT CHECK (asc_sign BETWEEN 0 AND 11),
+    moon_sign SMALLINT CHECK (moon_sign BETWEEN 0 AND 11),
+    sun_sign SMALLINT CHECK (sun_sign BETWEEN 0 AND 11),
     
     -- Metadata
     calculated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

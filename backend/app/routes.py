@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify, current_app
 from .schemas import ChartRequest, DashaRequest, ProfileUpdateRequest, AnalysisNoteCreate, AnalysisNoteUpdate
 from .auth import get_current_user
 from .logging_utils import sanitize_dict
+from .profile_filters import parse_profile_filters
+from .query_params import parse_int_param
 from .astro.engine import init_ephemeris, julian_day_utc, compute_planets
 from .astro.utils import to_utc
 from .astro.dasha import calculate_vimshottari_timeline
@@ -364,15 +366,23 @@ def dasha():
 @bp.route("/profiles", methods=["GET"])
 def get_profiles():
     """
-    Get all active profiles for the authenticated user.
-    
-    Returns an array of Profile objects sorted by updated_at descending.
-    
+    Get one page of active profiles for the authenticated user.
+
+    Query params:
+    - page: integer >= 1 (default 1)
+    - page_size: integer 1-100 (default 25)
+    - name: case-insensitive substring of the profile name (max 80 characters)
+    - ascendant_sign, moon_sign, sun_sign: integer 0 (Aries) to 11 (Pisces)
+    Filters combine with AND; pagination.total counts the filtered set.
+
+    Returns {"profiles": [...], "pagination": {page, page_size, total, total_pages}}
+    with profiles sorted by updated_at descending (id descending as tie-break).
+
     SECURITY:
     - Requires authentication
     - Only returns profiles owned by the authenticated user
     - Only returns active profiles (is_active=True)
-    - Returns empty array if user has no profiles
+    - Returns an empty profiles array if the page is past the end
     """
     # AUTHENTICATION REQUIRED - Validate session and authorization
     session_data = get_current_user()
@@ -383,13 +393,38 @@ def get_profiles():
     from flask import g
     user = g.current_user
     
-    current_app.logger.info(f"🔵 GET /profiles - User ID: {user.id}")
+    from .db import (
+        get_user_profiles_page,
+        get_notes_summary_for_charts,
+        DEFAULT_PROFILES_PAGE_SIZE,
+        MAX_PROFILES_PAGE_SIZE,
+    )
+
+    try:
+        page = parse_int_param(request.args, "page", 1, 1)
+        page_size = parse_int_param(
+            request.args, "page_size", DEFAULT_PROFILES_PAGE_SIZE, 1, MAX_PROFILES_PAGE_SIZE
+        )
+        filters = parse_profile_filters(request.args)
+    except ValueError as e:
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": str(e)
+            }
+        }), 400
+
+    # Log which filters are set, never their values (names are personal data)
+    active_filters = [
+        field for field, value in vars(filters).items() if value is not None
+    ]
+    current_app.logger.info(
+        f"🔵 GET /profiles - User ID: {user.id} page={page} page_size={page_size} "
+        f"filters={active_filters}"
+    )
     
     try:
-        # Get all active profiles for the authenticated user
-        from .db import get_user_profiles, get_notes_summary_for_charts
-        
-        profiles = get_user_profiles(user.id)
+        profiles, total = get_user_profiles_page(user.id, page, page_size, filters)
         
         # Convert profiles to dictionaries
         profiles_data = [profile.to_dict() for profile in profiles]
@@ -420,10 +455,17 @@ def get_profiles():
                 profile_dict['notes_count'] = 0
                 profile_dict['note_titles'] = []
         
-        current_app.logger.info(f"✅ Retrieved {len(profiles_data)} profiles for user ID: {user.id}")
+        current_app.logger.info(f"✅ Retrieved {len(profiles_data)} of {total} profiles for user ID: {user.id}")
         
-        # Return JSON array directly (not wrapped in object)
-        return jsonify(profiles_data), 200
+        return jsonify({
+            "profiles": profiles_data,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": -(-total // page_size),
+            }
+        }), 200
         
     except Exception as e:
         # Log error for debugging

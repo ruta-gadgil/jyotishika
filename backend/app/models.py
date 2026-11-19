@@ -298,6 +298,13 @@ class Chart(db.Model):
     house_cusps = db.Column(db.JSON, nullable=True)  # House cusp positions
     bhav_chalit_data = db.Column(db.JSON, nullable=False)  # Bhav Chalit house system
     chart_metadata = db.Column(db.JSON, nullable=False)  # Calculation metadata
+
+    # Sign placements (0 = Aries ... 11 = Pisces) derived from the chart data by
+    # chart_signs.extract_chart_signs and written only by db._apply_chart_data.
+    # Plain columns so Saved Profiles filters never scan JSON. Null = unknown.
+    asc_sign = db.Column(db.SmallInteger, nullable=True)
+    moon_sign = db.Column(db.SmallInteger, nullable=True)
+    sun_sign = db.Column(db.SmallInteger, nullable=True)
     
     # Metadata
     calculated_at = db.Column(
